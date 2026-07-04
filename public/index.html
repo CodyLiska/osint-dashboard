@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OSIRIS Situational Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="Intelligence layers">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <div>
+            <h1>OSIRIS</h1>
+            <p>Global situational awareness</p>
+          </div>
+        </div>
+
+        <div class="status-grid">
+          <div><strong id="active-count">0</strong><span>active layers</span></div>
+          <div><strong id="entity-count">0</strong><span>visible entities</span></div>
+        </div>
+
+        <section class="panel">
+          <header>
+            <h2>Layers</h2>
+            <button class="ghost-button" id="refresh-active" type="button">Refresh</button>
+          </header>
+          <div id="layer-list" class="layer-list"></div>
+        </section>
+      </aside>
+
+      <section class="map-region">
+        <div id="map"></div>
+        <div class="topbar">
+          <div class="search-box">
+            <span>⌕</span>
+            <input id="place-search" type="search" placeholder="Focus city, port, chokepoint, conflict zone">
+          </div>
+          <div id="clock" class="clock"></div>
+        </div>
+        <div id="entity-detail" class="entity-detail" hidden></div>
+      </section>
+
+      <aside class="recon" aria-label="Recon toolkit">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="crypto" type="button">Crypto</button>
+          <button class="tab" data-tab="sanctions" type="button">Sanctions</button>
+          <button class="tab" data-tab="intel" type="button">Intel</button>
+          <button class="tab" data-tab="cyber" type="button">Cyber</button>
+          <button class="tab" data-tab="feeds" type="button">Feeds</button>
+        </div>
+
+        <section class="tool-panel active" id="crypto">
+          <h2>Wallet Intelligence</h2>
+          <div class="field-row">
+            <select id="chain">
+              <option value="btc">BTC</option>
+              <option value="eth">ETH</option>
+            </select>
+            <input id="wallet" placeholder="Wallet address">
+            <button id="wallet-lookup" type="button">Lookup</button>
+          </div>
+          <div id="wallet-result" class="result-box">Enter a BTC or ETH wallet to check balances and OFAC SDN exposure.</div>
+        </section>
+
+        <section class="tool-panel" id="sanctions">
+          <h2>SDN Search</h2>
+          <div class="field-row">
+            <input id="sanctions-query" placeholder="Person, org, vessel, aircraft">
+            <button id="sanctions-search" type="button">Search</button>
+          </div>
+          <div id="sanctions-result" class="result-box">OpenSanctions search results appear here.</div>
+        </section>
+
+        <section class="tool-panel" id="intel">
+          <h2>IOC Intel</h2>
+          <div class="field-row">
+            <select id="intel-kind">
+              <option value="ip">IP</option>
+              <option value="domain">Domain</option>
+              <option value="url">URL</option>
+            </select>
+            <input id="intel-query" placeholder="IP, domain, or URL">
+            <button id="intel-lookup" type="button">Lookup</button>
+          </div>
+          <div id="intel-result" class="result-box">IP lookups use AbuseIPDB, GreyNoise, and VirusTotal when keys are configured. Domain and URL lookups use VirusTotal.</div>
+        </section>
+
+        <section class="tool-panel" id="cyber">
+          <h2>CVE Watch</h2>
+          <div class="field-row">
+            <input id="cve-query" value="kev" placeholder="Keyword">
+            <button id="cve-search" type="button">Search</button>
+          </div>
+          <div id="cve-result" class="result-box">Search recent NVD CVEs by keyword.</div>
+        </section>
+
+        <section class="tool-panel" id="feeds">
+          <h2>Live Desk</h2>
+          <div id="source-health" class="source-health"></div>
+          <div id="feed-list" class="feed-list"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/deck.gl@9.0.33/dist.min.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
