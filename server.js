@@ -40,6 +40,7 @@ async function loadEnvFile() {
 await loadEnvFile();
 
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -265,6 +266,6 @@ const server = http.createServer((req, res) => {
   return serveStatic(req, res, url);
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`OSINT dashboard running at http://localhost:${port}`);
+server.listen(port, host, () => {
+  console.log(`OSINT dashboard running at http://${host}:${port}`);
 });

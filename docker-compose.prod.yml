@@ -1,0 +1,16 @@
+services:
+  osiris:
+    build: .
+    image: osiris-dashboard
+    container_name: osiris-dashboard
+    # WEB_PORT is the LAN-facing host port. Verify it is free on the server
+    # (ss -ltnp + docker ps) before deploying. Container listens on 4173.
+    ports:
+      - "${WEB_PORT:-8092}:4173"
+    env_file:
+      - .env
+    environment:
+      # Ensure the container binds all interfaces regardless of .env contents.
+      HOST: 0.0.0.0
+      PORT: 4173
+    restart: unless-stopped
