@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { layerEntities } from "./src/adapters/layers.js";
 import {
   abuseIpLookup,
@@ -268,12 +268,18 @@ async function serveStatic(req, res, url) {
   }
 }
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname.startsWith("/api/")) return handleApi(req, res, url);
-  return serveStatic(req, res, url);
-});
+export function createServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    if (url.pathname.startsWith("/api/")) return handleApi(req, res, url);
+    return serveStatic(req, res, url);
+  });
+}
 
-server.listen(port, host, () => {
-  console.log(`OSINT dashboard running at http://${host}:${port}`);
-});
+// Listen only when run directly (`node server.js`); stay silent when imported by
+// tests so routing can be exercised on an ephemeral port without side effects.
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  createServer().listen(port, host, () => {
+    console.log(`OSINT dashboard running at http://${host}:${port}`);
+  });
+}
