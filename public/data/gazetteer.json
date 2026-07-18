@@ -1,0 +1,1034 @@
+{
+  "dataset": "gazetteer",
+  "version": "1.0.0",
+  "updated": "2026-07-17",
+  "source": "Curated OSINT gazetteer (conflict / situational-awareness places)",
+  "license": "Curated public coordinates (approximate city centroids)",
+  "notes": "Consumed by src/lib/gazetteer.js geoparse(): Latin names match on word boundaries, non-Latin aliases match as substrings.",
+  "count": 142,
+  "records": [
+    {
+      "name": "Kyiv",
+      "lat": 50.4501,
+      "lon": 30.5234,
+      "aliases": [
+        "Київ",
+        "Киев"
+      ]
+    },
+    {
+      "name": "Kharkiv",
+      "lat": 49.9935,
+      "lon": 36.2304,
+      "aliases": [
+        "Харків",
+        "Харьков"
+      ]
+    },
+    {
+      "name": "Odesa",
+      "lat": 46.4825,
+      "lon": 30.7233,
+      "aliases": [
+        "Одеса",
+        "Одесса"
+      ]
+    },
+    {
+      "name": "Dnipro",
+      "lat": 48.4647,
+      "lon": 35.0462,
+      "aliases": [
+        "Дніпро",
+        "Днепр"
+      ]
+    },
+    {
+      "name": "Zaporizhzhia",
+      "lat": 47.8388,
+      "lon": 35.1396,
+      "aliases": [
+        "Запоріжжя",
+        "Запорожье"
+      ]
+    },
+    {
+      "name": "Kherson",
+      "lat": 46.6354,
+      "lon": 32.6169,
+      "aliases": [
+        "Херсон"
+      ]
+    },
+    {
+      "name": "Mykolaiv",
+      "lat": 46.975,
+      "lon": 31.9946,
+      "aliases": [
+        "Миколаїв",
+        "Николаев"
+      ]
+    },
+    {
+      "name": "Lviv",
+      "lat": 49.8397,
+      "lon": 24.0297,
+      "aliases": [
+        "Львів",
+        "Львов"
+      ]
+    },
+    {
+      "name": "Kramatorsk",
+      "lat": 48.7381,
+      "lon": 37.5844,
+      "aliases": [
+        "Краматорськ",
+        "Краматорск"
+      ]
+    },
+    {
+      "name": "Pokrovsk",
+      "lat": 48.282,
+      "lon": 37.1758,
+      "aliases": [
+        "Покровськ",
+        "Покровск"
+      ]
+    },
+    {
+      "name": "Bakhmut",
+      "lat": 48.5944,
+      "lon": 38,
+      "aliases": [
+        "Бахмут",
+        "Артемовск"
+      ]
+    },
+    {
+      "name": "Mariupol",
+      "lat": 47.0971,
+      "lon": 37.5434,
+      "aliases": [
+        "Маріуполь",
+        "Мариуполь"
+      ]
+    },
+    {
+      "name": "Luhansk",
+      "lat": 48.574,
+      "lon": 39.3078,
+      "aliases": [
+        "Луганськ",
+        "Луганск"
+      ]
+    },
+    {
+      "name": "Donetsk",
+      "lat": 48.0159,
+      "lon": 37.8029,
+      "aliases": [
+        "Донецьк",
+        "Донецк"
+      ]
+    },
+    {
+      "name": "Chernihiv",
+      "lat": 51.4982,
+      "lon": 31.2893,
+      "aliases": [
+        "Чернігів",
+        "Чернигов"
+      ]
+    },
+    {
+      "name": "Sumy",
+      "lat": 50.9077,
+      "lon": 34.7981,
+      "aliases": [
+        "Суми"
+      ]
+    },
+    {
+      "name": "Poltava",
+      "lat": 49.5883,
+      "lon": 34.5514,
+      "aliases": [
+        "Полтава"
+      ]
+    },
+    {
+      "name": "Vinnytsia",
+      "lat": 49.2331,
+      "lon": 28.4682,
+      "aliases": [
+        "Вінниця"
+      ]
+    },
+    {
+      "name": "Avdiivka",
+      "lat": 48.1394,
+      "lon": 37.7497,
+      "aliases": [
+        "Авдіївка",
+        "Авдеевка"
+      ]
+    },
+    {
+      "name": "Gaza",
+      "lat": 31.5017,
+      "lon": 34.4668,
+      "aliases": [
+        "غزة"
+      ]
+    },
+    {
+      "name": "Khan Younis",
+      "lat": 31.3462,
+      "lon": 34.3032,
+      "aliases": [
+        "خان يونس"
+      ]
+    },
+    {
+      "name": "Rafah",
+      "lat": 31.2969,
+      "lon": 34.2435,
+      "aliases": [
+        "رفح"
+      ]
+    },
+    {
+      "name": "Jerusalem",
+      "lat": 31.7683,
+      "lon": 35.2137,
+      "aliases": [
+        "القدس",
+        "ירושלים"
+      ]
+    },
+    {
+      "name": "Tel Aviv",
+      "lat": 32.0853,
+      "lon": 34.7818,
+      "aliases": [
+        "تل أبيب",
+        "תל אביב"
+      ]
+    },
+    {
+      "name": "Haifa",
+      "lat": 32.794,
+      "lon": 34.9896,
+      "aliases": [
+        "حيفا",
+        "חיפה"
+      ]
+    },
+    {
+      "name": "West Bank",
+      "lat": 31.9466,
+      "lon": 35.3027,
+      "aliases": [
+        "الضفة الغربية"
+      ]
+    },
+    {
+      "name": "Jenin",
+      "lat": 32.4594,
+      "lon": 35.3009,
+      "aliases": [
+        "جنين"
+      ]
+    },
+    {
+      "name": "Nablus",
+      "lat": 32.2211,
+      "lon": 35.2544,
+      "aliases": [
+        "نابلس"
+      ]
+    },
+    {
+      "name": "Khartoum",
+      "lat": 15.5007,
+      "lon": 32.5599,
+      "aliases": [
+        "الخرطوم"
+      ]
+    },
+    {
+      "name": "Omdurman",
+      "lat": 15.6445,
+      "lon": 32.4777,
+      "aliases": [
+        "أم درمان"
+      ]
+    },
+    {
+      "name": "Port Sudan",
+      "lat": 19.6158,
+      "lon": 37.2164,
+      "aliases": [
+        "بورتسودان"
+      ]
+    },
+    {
+      "name": "Sanaa",
+      "lat": 15.3694,
+      "lon": 44.191,
+      "aliases": [
+        "صنعاء"
+      ]
+    },
+    {
+      "name": "Aden",
+      "lat": 12.7855,
+      "lon": 45.0187,
+      "aliases": [
+        "عدن"
+      ]
+    },
+    {
+      "name": "Hodeidah",
+      "lat": 14.7978,
+      "lon": 42.9545,
+      "aliases": [
+        "الحديدة"
+      ]
+    },
+    {
+      "name": "Marib",
+      "lat": 15.462,
+      "lon": 45.322,
+      "aliases": [
+        "مأرب"
+      ]
+    },
+    {
+      "name": "Tehran",
+      "lat": 35.6892,
+      "lon": 51.389,
+      "aliases": [
+        "تهران"
+      ]
+    },
+    {
+      "name": "Baghdad",
+      "lat": 33.3152,
+      "lon": 44.3661,
+      "aliases": [
+        "بغداد"
+      ]
+    },
+    {
+      "name": "Mosul",
+      "lat": 36.335,
+      "lon": 43.1189,
+      "aliases": [
+        "الموصل"
+      ]
+    },
+    {
+      "name": "Erbil",
+      "lat": 36.1901,
+      "lon": 44.0091,
+      "aliases": [
+        "أربيل",
+        "هەولێر"
+      ]
+    },
+    {
+      "name": "Basra",
+      "lat": 30.5085,
+      "lon": 47.7804,
+      "aliases": [
+        "البصرة"
+      ]
+    },
+    {
+      "name": "Aleppo",
+      "lat": 36.2021,
+      "lon": 37.1343,
+      "aliases": [
+        "حلب"
+      ]
+    },
+    {
+      "name": "Idlib",
+      "lat": 35.9306,
+      "lon": 36.6339,
+      "aliases": [
+        "إدلب"
+      ]
+    },
+    {
+      "name": "Homs",
+      "lat": 34.7324,
+      "lon": 36.7137,
+      "aliases": [
+        "حمص"
+      ]
+    },
+    {
+      "name": "Latakia",
+      "lat": 35.5196,
+      "lon": 35.7915,
+      "aliases": [
+        "اللاذقية"
+      ]
+    },
+    {
+      "name": "Taipei",
+      "lat": 25.033,
+      "lon": 121.5654,
+      "aliases": [
+        "台北"
+      ]
+    },
+    {
+      "name": "Seoul",
+      "lat": 37.5665,
+      "lon": 126.978,
+      "aliases": [
+        "서울"
+      ]
+    },
+    {
+      "name": "Pyongyang",
+      "lat": 39.0392,
+      "lon": 125.7625,
+      "aliases": [
+        "평양"
+      ]
+    },
+    {
+      "name": "Tokyo",
+      "lat": 35.6762,
+      "lon": 139.6503,
+      "aliases": [
+        "東京"
+      ]
+    },
+    {
+      "name": "Beijing",
+      "lat": 39.9042,
+      "lon": 116.4074,
+      "aliases": [
+        "北京"
+      ]
+    },
+    {
+      "name": "Shanghai",
+      "lat": 31.2304,
+      "lon": 121.4737,
+      "aliases": [
+        "上海"
+      ]
+    },
+    {
+      "name": "Hong Kong",
+      "lat": 22.3193,
+      "lon": 114.1694,
+      "aliases": [
+        "香港"
+      ]
+    },
+    {
+      "name": "Manila",
+      "lat": 14.5995,
+      "lon": 120.9842,
+      "aliases": []
+    },
+    {
+      "name": "Jakarta",
+      "lat": -6.2088,
+      "lon": 106.8456,
+      "aliases": []
+    },
+    {
+      "name": "Bangkok",
+      "lat": 13.7563,
+      "lon": 100.5018,
+      "aliases": []
+    },
+    {
+      "name": "Hanoi",
+      "lat": 21.0278,
+      "lon": 105.8342,
+      "aliases": []
+    },
+    {
+      "name": "Yangon",
+      "lat": 16.8409,
+      "lon": 96.1735,
+      "aliases": [
+        "Rangoon"
+      ]
+    },
+    {
+      "name": "Naypyidaw",
+      "lat": 19.7633,
+      "lon": 96.0785,
+      "aliases": []
+    },
+    {
+      "name": "Kabul",
+      "lat": 34.5553,
+      "lon": 69.2075,
+      "aliases": [
+        "کابل"
+      ]
+    },
+    {
+      "name": "Islamabad",
+      "lat": 33.6844,
+      "lon": 73.0479,
+      "aliases": []
+    },
+    {
+      "name": "Karachi",
+      "lat": 24.8607,
+      "lon": 67.0011,
+      "aliases": []
+    },
+    {
+      "name": "New Delhi",
+      "lat": 28.6139,
+      "lon": 77.209,
+      "aliases": []
+    },
+    {
+      "name": "Mumbai",
+      "lat": 19.076,
+      "lon": 72.8777,
+      "aliases": []
+    },
+    {
+      "name": "Dhaka",
+      "lat": 23.8103,
+      "lon": 90.4125,
+      "aliases": []
+    },
+    {
+      "name": "Colombo",
+      "lat": 6.9271,
+      "lon": 79.8612,
+      "aliases": []
+    },
+    {
+      "name": "Singapore",
+      "lat": 1.3521,
+      "lon": 103.8198,
+      "aliases": []
+    },
+    {
+      "name": "Mogadishu",
+      "lat": 2.0469,
+      "lon": 45.3182,
+      "aliases": [
+        "Muqdisho"
+      ]
+    },
+    {
+      "name": "Hargeisa",
+      "lat": 9.5624,
+      "lon": 44.077,
+      "aliases": []
+    },
+    {
+      "name": "Addis Ababa",
+      "lat": 8.9806,
+      "lon": 38.7578,
+      "aliases": []
+    },
+    {
+      "name": "Nairobi",
+      "lat": -1.2921,
+      "lon": 36.8219,
+      "aliases": []
+    },
+    {
+      "name": "Kampala",
+      "lat": 0.3476,
+      "lon": 32.5825,
+      "aliases": []
+    },
+    {
+      "name": "Juba",
+      "lat": 4.8594,
+      "lon": 31.5713,
+      "aliases": []
+    },
+    {
+      "name": "Kinshasa",
+      "lat": -4.4419,
+      "lon": 15.2663,
+      "aliases": []
+    },
+    {
+      "name": "Goma",
+      "lat": -1.6585,
+      "lon": 29.2205,
+      "aliases": []
+    },
+    {
+      "name": "Bangui",
+      "lat": 4.3947,
+      "lon": 18.5582,
+      "aliases": []
+    },
+    {
+      "name": "Bamako",
+      "lat": 12.6392,
+      "lon": -8.0029,
+      "aliases": []
+    },
+    {
+      "name": "Niamey",
+      "lat": 13.5116,
+      "lon": 2.1254,
+      "aliases": []
+    },
+    {
+      "name": "Ouagadougou",
+      "lat": 12.3714,
+      "lon": -1.5197,
+      "aliases": []
+    },
+    {
+      "name": "Ndjamena",
+      "lat": 12.1348,
+      "lon": 15.0557,
+      "aliases": [
+        "N'Djamena"
+      ]
+    },
+    {
+      "name": "Maiduguri",
+      "lat": 11.8311,
+      "lon": 13.151,
+      "aliases": []
+    },
+    {
+      "name": "Lagos",
+      "lat": 6.5244,
+      "lon": 3.3792,
+      "aliases": []
+    },
+    {
+      "name": "Abuja",
+      "lat": 9.0765,
+      "lon": 7.3986,
+      "aliases": []
+    },
+    {
+      "name": "Cairo",
+      "lat": 30.0444,
+      "lon": 31.2357,
+      "aliases": [
+        "القاهرة"
+      ]
+    },
+    {
+      "name": "Tripoli",
+      "lat": 32.8872,
+      "lon": 13.1913,
+      "aliases": [
+        "طرابلس"
+      ]
+    },
+    {
+      "name": "Benghazi",
+      "lat": 32.1167,
+      "lon": 20.0686,
+      "aliases": [
+        "بنغازي"
+      ]
+    },
+    {
+      "name": "Misrata",
+      "lat": 32.3754,
+      "lon": 15.0925,
+      "aliases": [
+        "مصراتة"
+      ]
+    },
+    {
+      "name": "Tunis",
+      "lat": 36.8065,
+      "lon": 10.1815,
+      "aliases": []
+    },
+    {
+      "name": "Algiers",
+      "lat": 36.7538,
+      "lon": 3.0588,
+      "aliases": []
+    },
+    {
+      "name": "Rabat",
+      "lat": 34.0209,
+      "lon": -6.8416,
+      "aliases": []
+    },
+    {
+      "name": "Damascus",
+      "lat": 33.5138,
+      "lon": 36.2765,
+      "aliases": [
+        "دمشق"
+      ]
+    },
+    {
+      "name": "Beirut",
+      "lat": 33.8938,
+      "lon": 35.5018,
+      "aliases": [
+        "بيروت"
+      ]
+    },
+    {
+      "name": "Amman",
+      "lat": 31.9539,
+      "lon": 35.9106,
+      "aliases": [
+        "عمان"
+      ]
+    },
+    {
+      "name": "Doha",
+      "lat": 25.2854,
+      "lon": 51.531,
+      "aliases": []
+    },
+    {
+      "name": "Riyadh",
+      "lat": 24.7136,
+      "lon": 46.6753,
+      "aliases": [
+        "الرياض"
+      ]
+    },
+    {
+      "name": "Dubai",
+      "lat": 25.2048,
+      "lon": 55.2708,
+      "aliases": []
+    },
+    {
+      "name": "Abu Dhabi",
+      "lat": 24.4539,
+      "lon": 54.3773,
+      "aliases": []
+    },
+    {
+      "name": "Istanbul",
+      "lat": 41.0082,
+      "lon": 28.9784,
+      "aliases": []
+    },
+    {
+      "name": "Ankara",
+      "lat": 39.9334,
+      "lon": 32.8597,
+      "aliases": []
+    },
+    {
+      "name": "Belgorod",
+      "lat": 50.5997,
+      "lon": 36.5983,
+      "aliases": [
+        "Белгород"
+      ]
+    },
+    {
+      "name": "Kursk",
+      "lat": 51.7304,
+      "lon": 36.1926,
+      "aliases": [
+        "Курск"
+      ]
+    },
+    {
+      "name": "Rostov",
+      "lat": 47.2357,
+      "lon": 39.7015,
+      "aliases": [
+        "Ростов"
+      ]
+    },
+    {
+      "name": "Moscow",
+      "lat": 55.7558,
+      "lon": 37.6173,
+      "aliases": [
+        "Москва"
+      ]
+    },
+    {
+      "name": "Bryansk",
+      "lat": 53.2436,
+      "lon": 34.364,
+      "aliases": [
+        "Брянск"
+      ]
+    },
+    {
+      "name": "Sevastopol",
+      "lat": 44.6167,
+      "lon": 33.5254,
+      "aliases": [
+        "Севастополь"
+      ]
+    },
+    {
+      "name": "Crimea",
+      "lat": 45.3453,
+      "lon": 34.4997,
+      "aliases": [
+        "Крым",
+        "Крим"
+      ]
+    },
+    {
+      "name": "London",
+      "lat": 51.5072,
+      "lon": -0.1276,
+      "aliases": []
+    },
+    {
+      "name": "Paris",
+      "lat": 48.8566,
+      "lon": 2.3522,
+      "aliases": []
+    },
+    {
+      "name": "Berlin",
+      "lat": 52.52,
+      "lon": 13.405,
+      "aliases": []
+    },
+    {
+      "name": "Brussels",
+      "lat": 50.8503,
+      "lon": 4.3517,
+      "aliases": []
+    },
+    {
+      "name": "Warsaw",
+      "lat": 52.2297,
+      "lon": 21.0122,
+      "aliases": []
+    },
+    {
+      "name": "Prague",
+      "lat": 50.0755,
+      "lon": 14.4378,
+      "aliases": []
+    },
+    {
+      "name": "Vienna",
+      "lat": 48.2082,
+      "lon": 16.3738,
+      "aliases": []
+    },
+    {
+      "name": "Budapest",
+      "lat": 47.4979,
+      "lon": 19.0402,
+      "aliases": []
+    },
+    {
+      "name": "Bucharest",
+      "lat": 44.4268,
+      "lon": 26.1025,
+      "aliases": []
+    },
+    {
+      "name": "Chisinau",
+      "lat": 47.0105,
+      "lon": 28.8638,
+      "aliases": []
+    },
+    {
+      "name": "Minsk",
+      "lat": 53.9006,
+      "lon": 27.559,
+      "aliases": [
+        "Минск"
+      ]
+    },
+    {
+      "name": "Tbilisi",
+      "lat": 41.7151,
+      "lon": 44.8271,
+      "aliases": []
+    },
+    {
+      "name": "Yerevan",
+      "lat": 40.1872,
+      "lon": 44.5152,
+      "aliases": []
+    },
+    {
+      "name": "Baku",
+      "lat": 40.4093,
+      "lon": 49.8671,
+      "aliases": []
+    },
+    {
+      "name": "New York",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "aliases": []
+    },
+    {
+      "name": "Washington",
+      "lat": 38.9072,
+      "lon": -77.0369,
+      "aliases": [
+        "Washington DC",
+        "Washington, DC"
+      ]
+    },
+    {
+      "name": "Los Angeles",
+      "lat": 34.0522,
+      "lon": -118.2437,
+      "aliases": []
+    },
+    {
+      "name": "Chicago",
+      "lat": 41.8781,
+      "lon": -87.6298,
+      "aliases": []
+    },
+    {
+      "name": "Miami",
+      "lat": 25.7617,
+      "lon": -80.1918,
+      "aliases": []
+    },
+    {
+      "name": "Mexico City",
+      "lat": 19.4326,
+      "lon": -99.1332,
+      "aliases": []
+    },
+    {
+      "name": "Bogota",
+      "lat": 4.711,
+      "lon": -74.0721,
+      "aliases": [
+        "Bogotá"
+      ]
+    },
+    {
+      "name": "Caracas",
+      "lat": 10.4806,
+      "lon": -66.9036,
+      "aliases": []
+    },
+    {
+      "name": "Quito",
+      "lat": -0.1807,
+      "lon": -78.4678,
+      "aliases": []
+    },
+    {
+      "name": "Lima",
+      "lat": -12.0464,
+      "lon": -77.0428,
+      "aliases": []
+    },
+    {
+      "name": "Santiago",
+      "lat": -33.4489,
+      "lon": -70.6693,
+      "aliases": []
+    },
+    {
+      "name": "Buenos Aires",
+      "lat": -34.6037,
+      "lon": -58.3816,
+      "aliases": []
+    },
+    {
+      "name": "Brasilia",
+      "lat": -15.7939,
+      "lon": -47.8828,
+      "aliases": [
+        "Brasília"
+      ]
+    },
+    {
+      "name": "Sao Paulo",
+      "lat": -23.5558,
+      "lon": -46.6396,
+      "aliases": [
+        "São Paulo"
+      ]
+    },
+    {
+      "name": "Rio de Janeiro",
+      "lat": -22.9068,
+      "lon": -43.1729,
+      "aliases": []
+    },
+    {
+      "name": "Havana",
+      "lat": 23.1136,
+      "lon": -82.3666,
+      "aliases": []
+    },
+    {
+      "name": "Port-au-Prince",
+      "lat": 18.5944,
+      "lon": -72.3074,
+      "aliases": []
+    },
+    {
+      "name": "Ottawa",
+      "lat": 45.4215,
+      "lon": -75.6972,
+      "aliases": []
+    },
+    {
+      "name": "Toronto",
+      "lat": 43.6532,
+      "lon": -79.3832,
+      "aliases": []
+    },
+    {
+      "name": "Vancouver",
+      "lat": 49.2827,
+      "lon": -123.1207,
+      "aliases": []
+    },
+    {
+      "name": "Canberra",
+      "lat": -35.2809,
+      "lon": 149.13,
+      "aliases": []
+    },
+    {
+      "name": "Sydney",
+      "lat": -33.8688,
+      "lon": 151.2093,
+      "aliases": []
+    },
+    {
+      "name": "Melbourne",
+      "lat": -37.8136,
+      "lon": 144.9631,
+      "aliases": []
+    },
+    {
+      "name": "Auckland",
+      "lat": -36.8509,
+      "lon": 174.7645,
+      "aliases": []
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "dataset": "conflict",
+  "version": "1.0.0",
+  "updated": "2026-07-17",
+  "source": "Curated: active conflict and high-tension zones",
+  "license": "Curated public coordinates",
+  "count": 13,
+  "records": [
+    {
+      "id": "conflict-Ukraine",
+      "type": "Conflict zone",
+      "name": "Ukraine",
+      "lat": 48.3794,
+      "lon": 31.1656,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-Gaza",
+      "type": "Conflict zone",
+      "name": "Gaza",
+      "lat": 31.5017,
+      "lon": 34.4668,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-Sudan",
+      "type": "Conflict zone",
+      "name": "Sudan",
+      "lat": 15.5007,
+      "lon": 32.5599,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-Myanmar",
+      "type": "Conflict zone",
+      "name": "Myanmar",
+      "lat": 21.9162,
+      "lon": 95.956,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-DRC",
+      "type": "Conflict zone",
+      "name": "DRC",
+      "lat": -2.9814,
+      "lon": 23.8223,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-Yemen",
+      "type": "Conflict zone",
+      "name": "Yemen",
+      "lat": 15.5527,
+      "lon": 48.5164,
+      "status": "Active war",
+      "severity": 5
+    },
+    {
+      "id": "conflict-Syria",
+      "type": "Conflict zone",
+      "name": "Syria",
+      "lat": 34.8021,
+      "lon": 38.9968,
+      "status": "High tension",
+      "severity": 4
+    },
+    {
+      "id": "conflict-Lebanon",
+      "type": "Conflict zone",
+      "name": "Lebanon",
+      "lat": 33.8547,
+      "lon": 35.8623,
+      "status": "High tension",
+      "severity": 4
+    },
+    {
+      "id": "conflict-Sahel",
+      "type": "Conflict zone",
+      "name": "Sahel",
+      "lat": 17.5707,
+      "lon": -3.9962,
+      "status": "High tension",
+      "severity": 4
+    },
+    {
+      "id": "conflict-Somalia",
+      "type": "Conflict zone",
+      "name": "Somalia",
+      "lat": 5.1521,
+      "lon": 46.1996,
+      "status": "High tension",
+      "severity": 4
+    },
+    {
+      "id": "conflict-Red Sea",
+      "type": "Conflict zone",
+      "name": "Red Sea",
+      "lat": 19,
+      "lon": 39,
+      "status": "High tension",
+      "severity": 4
+    },
+    {
+      "id": "conflict-Taiwan Strait",
+      "type": "Conflict zone",
+      "name": "Taiwan Strait",
+      "lat": 24,
+      "lon": 119,
+      "status": "Elevated",
+      "severity": 3
+    },
+    {
+      "id": "conflict-Korean DMZ",
+      "type": "Conflict zone",
+      "name": "Korean DMZ",
+      "lat": 38.248,
+      "lon": 127.095,
+      "status": "Elevated",
+      "severity": 3
+    }
+  ]
+}

@@ -63,13 +63,18 @@ The first version favors keyless public endpoints. Some feeds may rate-limit, bl
 
 Telegram ingestion only reads unauthenticated public web previews. Use it for public-channel monitoring, not private-channel access or account automation.
 
-## Next Build Phases
+## Build Phases
 
-1. Replace the small place dictionary with a proper gazetteer and confidence scoring.
-2. Add clustering and severity filters for high-volume layers.
-3. Add per-layer polling intervals.
-4. Persist layer visibility, map viewport, and recon history in local storage.
-5. Add WHOIS and IP intelligence routes with OpenSanctions name cross-checks.
-6. Move large static datasets into versioned JSON files with provenance fields.
+Completed (2026-07-17):
+
+1. Done: proper gazetteer + confidence scoring (`src/lib/gazetteer.js`, word-boundary matching; `confidence` on Telegram entities).
+2. Done: clustering + severity filters for high-volume layers (zoom-aware grid clustering, global min-severity slider).
+3. Done: per-layer polling intervals (elapsed-time ticker; `LAYER_REFRESH_MS`).
+4. Done: persist layer visibility, map viewport, and recon history in localStorage.
+5. Done: WHOIS/IP intelligence route via keyless RDAP (`/api/intel/whois`) with OpenSanctions name cross-checks.
+6. Done: large static datasets moved to versioned JSON with provenance (`public/data/*.json`).
+8. Done: exportable incident snapshots (JSON) for analyst reports (Export button).
+
+Remaining:
+
 7. Add authenticated adapters for additional sources that allow higher quotas.
-8. Add exportable incident snapshots for analyst reports.

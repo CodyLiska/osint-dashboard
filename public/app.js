@@ -1,16 +1,72 @@
-import { layerDefinitions, staticLayers } from "./data.js";
+import { layerDefinitions, loadStaticLayers } from "./data.js";
+
+// Populated from the versioned public/data/*.json datasets before initial hydrate.
+let staticLayers = {};
+
+// Persisted UI state (layer visibility, map viewport, recon history) lives under
+// one namespaced localStorage key. All access is best-effort: private-mode blocks
+// or a full quota must never break the dashboard.
+const STORAGE_KEY = "osiris.ui.v1";
+const RECON_HISTORY_LIMIT = 20;
+const DEFAULT_LAYERS = ["conflict", "seismic", "ports", "chokepoints", "telegram"];
+
+function loadStore() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+const store = loadStore();
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // localStorage unavailable (private mode) or over quota — skip persistence
+  }
+}
 
 const state = {
-  enabled: new Set(["conflict", "seismic", "ports", "chokepoints", "telegram"]),
+  enabled: new Set(Array.isArray(store.enabled) ? store.enabled : DEFAULT_LAYERS),
   data: new Map(),
   fetched: new Set(),
   refreshing: new Set(),
+  lastFetched: new Map(),
+  minSeverity: Math.min(5, Math.max(1, Number(store.minSeverity) || 1)),
   deckOverlay: null,
   map: null
 };
 
-const AVIATION_REFRESH_MS = 60_000;
+// Per-layer poll cadence (ms). Only live (API-backed) layers appear here; static
+// layers never poll. Fast-moving feeds refresh often, slow reference feeds rarely.
+const LAYER_REFRESH_MS = {
+  seismic: 60_000,
+  aviation: 60_000,
+  maritime: 60_000,
+  telegram: 120_000,
+  fires: 300_000,
+  weather: 300_000,
+  news: 300_000,
+  space: 300_000,
+  crypto: 300_000,
+  ports: 600_000,
+  cyber: 900_000,
+  sanctions: 1_800_000
+};
+// One ticker checks every layer's elapsed time against its cadence, so intervals
+// are measured from the last actual fetch (a manual or viewport refresh resets the
+// clock) rather than fixed wall-clock multiples.
+const POLL_TICK_MS = 15_000;
 const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "fires", "weather", "ports"]);
+
+// Dense layers that collapse into count badges when zoomed out. A layer only
+// clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
+// is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
+const CLUSTER_LAYERS = new Set(["aviation", "fires", "seismic", "news", "telegram", "maritime", "ports"]);
+const CLUSTER_MIN_POINTS = 15;
+const CLUSTER_MAX_ZOOM = 5;
 
 const els = {
   layerList: document.querySelector("#layer-list"),
@@ -143,10 +199,11 @@ const menuIcons = {
 };
 
 function initMap() {
+  const savedView = store.viewport;
   state.map = new maplibregl.Map({
     container: "map",
-    center: [20, 24],
-    zoom: 2.1,
+    center: Array.isArray(savedView?.center) ? savedView.center : [20, 24],
+    zoom: Number.isFinite(savedView?.zoom) ? savedView.zoom : 2.1,
     attributionControl: false,
     style: {
       version: 8,
@@ -165,13 +222,23 @@ function initMap() {
   state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
   state.deckOverlay = new deck.MapboxOverlay({ interleaved: true, layers: [] });
   state.map.addControl(state.deckOverlay);
-  state.map.on("moveend", () => refreshViewportAware());
+  state.map.on("moveend", () => {
+    saveViewport();
+    renderAll();
+    refreshViewportAware();
+  });
+}
+
+function saveViewport() {
+  const center = state.map.getCenter();
+  store.viewport = { center: [center.lng, center.lat], zoom: state.map.getZoom() };
+  persist();
 }
 
 function renderLayerControls() {
   els.layerList.innerHTML = "";
   for (const layer of layerDefinitions) {
-    const count = state.data.get(layer.id)?.length || 0;
+    const count = visibleEntities(layer.id).length;
     const menuIcon = menuIcons[layer.id] || "";
     const row = document.createElement("label");
     row.className = "layer-row";
@@ -188,6 +255,8 @@ function renderLayerControls() {
     const id = event.target.dataset.layer;
     if (!id) return;
     event.target.checked ? state.enabled.add(id) : state.enabled.delete(id);
+    store.enabled = [...state.enabled];
+    persist();
     await ensureLayer(id);
     renderAll();
   }, { once: true });
@@ -234,6 +303,10 @@ async function ensureLayer(id, force = false) {
       summary: error.message
     }]);
     state.fetched.add(id);
+  } finally {
+    // Reached only for live layers (static returns earlier). Records the attempt
+    // even on error so a failing source is retried on its cadence, not every tick.
+    state.lastFetched.set(id, Date.now());
   }
 }
 
@@ -261,14 +334,115 @@ async function fetchJson(url) {
   return response.json();
 }
 
+function visibleEntities(id) {
+  const rows = state.data.get(id) || [];
+  if (state.minSeverity <= 1) return rows;
+  return rows.filter((row) => (Number(row.severity) || 1) >= state.minSeverity);
+}
+
+function shouldCluster(id, rows, zoom) {
+  return CLUSTER_LAYERS.has(id) && rows.length >= CLUSTER_MIN_POINTS && zoom < CLUSTER_MAX_ZOOM;
+}
+
+// Grid-bin points into clusters. Cells shrink as you zoom in, so clusters split
+// apart. A cell with one point is returned as a single (rendered as its normal
+// icon); multi-point cells collapse into one count badge at the cell centroid.
+function clusterPoints(rows, zoom) {
+  const cellDeg = 90 / 2 ** zoom;
+  const bins = new Map();
+  for (const row of rows) {
+    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
+    const key = `${Math.floor(row.lon / cellDeg)}:${Math.floor(row.lat / cellDeg)}`;
+    let bin = bins.get(key);
+    if (!bin) {
+      bin = { sumLon: 0, sumLat: 0, items: [] };
+      bins.set(key, bin);
+    }
+    bin.sumLon += row.lon;
+    bin.sumLat += row.lat;
+    bin.items.push(row);
+  }
+  const singles = [];
+  const clusters = [];
+  for (const bin of bins.values()) {
+    if (bin.items.length === 1) {
+      singles.push(bin.items[0]);
+    } else {
+      clusters.push({
+        lon: bin.sumLon / bin.items.length,
+        lat: bin.sumLat / bin.items.length,
+        count: bin.items.length
+      });
+    }
+  }
+  return { singles, clusters };
+}
+
+function buildClusterLayers(id, clusters) {
+  const color = palette.get(id) || [255, 255, 255];
+  return [
+    new deck.ScatterplotLayer({
+      id: `cluster-${id}`,
+      data: clusters,
+      pickable: true,
+      stroked: true,
+      filled: true,
+      radiusUnits: "pixels",
+      getPosition: (d) => [d.lon, d.lat],
+      getRadius: (d) => 12 + Math.min(22, Math.log10(d.count + 1) * 14),
+      getFillColor: [...color, 205],
+      getLineColor: [255, 255, 255, 220],
+      lineWidthMinPixels: 1.5,
+      onClick: ({ object }) => {
+        if (!object) return;
+        state.map.flyTo({ center: [object.lon, object.lat], zoom: Math.min(CLUSTER_MAX_ZOOM + 1, state.map.getZoom() + 2) });
+      }
+    }),
+    new deck.TextLayer({
+      id: `cluster-label-${id}`,
+      data: clusters,
+      pickable: false,
+      getPosition: (d) => [d.lon, d.lat],
+      getText: (d) => String(d.count),
+      getSize: 13,
+      getColor: [8, 15, 15, 255],
+      getTextAnchor: "middle",
+      getAlignmentBaseline: "center"
+    })
+  ];
+}
+
 function renderAll() {
   const active = [...state.enabled];
-  const data = active.flatMap((id) => state.data.get(id) || []);
-  const layers = active.map((id) => {
+  const zoom = state.map ? state.map.getZoom() : 0;
+  const layers = [];
+  let visibleTotal = 0;
+
+  for (const id of active) {
+    const rows = visibleEntities(id);
+    visibleTotal += rows.length;
+    if (shouldCluster(id, rows, zoom)) {
+      const { singles, clusters } = clusterPoints(rows, zoom);
+      layers.push(buildIconLayer(id, singles));
+      layers.push(...buildClusterLayers(id, clusters));
+    } else {
+      layers.push(buildIconLayer(id, rows));
+    }
+  }
+
+  state.deckOverlay.setProps({ layers });
+  els.activeCount.textContent = active.length;
+  els.entityCount.textContent = visibleTotal.toLocaleString();
+  renderLayerControls();
+  renderFeeds();
+  refreshHealth();
+}
+
+function buildIconLayer(id, data) {
     if (id === "aviation") {
       return new deck.IconLayer({
         id: "aircraft-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: aircraftIconAtlas,
         iconMapping: aircraftIconMapping,
@@ -286,7 +460,7 @@ function renderAll() {
     if (id === "fires") {
       return new deck.IconLayer({
         id: "fire-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: fireIconAtlas,
         iconMapping: fireIconMapping,
@@ -303,7 +477,7 @@ function renderAll() {
     if (id === "ports") {
       return new deck.IconLayer({
         id: "port-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: portIconAtlas,
         iconMapping: portIconMapping,
@@ -320,7 +494,7 @@ function renderAll() {
     if (id === "seismic") {
       return new deck.IconLayer({
         id: "quake-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: quakeIconAtlas,
         iconMapping: quakeIconMapping,
@@ -337,7 +511,7 @@ function renderAll() {
     if (id === "weather") {
       return new deck.IconLayer({
         id: "weather-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: weatherIconAtlas,
         iconMapping: weatherIconMapping,
@@ -364,7 +538,7 @@ function renderAll() {
     if (id === "space") {
       return new deck.IconLayer({
         id: "space-weather-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: spaceIconAtlas,
         iconMapping: spaceIconMapping,
@@ -383,7 +557,7 @@ function renderAll() {
     if (id === "telegram") {
       return new deck.IconLayer({
         id: "telegram-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: telegramIconAtlas,
         iconMapping: telegramIconMapping,
@@ -400,7 +574,7 @@ function renderAll() {
     if (id === "cyber") {
       return new deck.IconLayer({
         id: "cyber-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: cyberIconAtlas,
         iconMapping: cyberIconMapping,
@@ -417,7 +591,7 @@ function renderAll() {
     if (id === "crypto") {
       return new deck.IconLayer({
         id: "crypto-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: cryptoIconAtlas,
         iconMapping: cryptoIconMapping,
@@ -434,7 +608,7 @@ function renderAll() {
     if (id === "sanctions") {
       return new deck.IconLayer({
         id: "sanctions-icons",
-        data: state.data.get(id) || [],
+        data,
         pickable: true,
         iconAtlas: sanctionsIconAtlas,
         iconMapping: sanctionsIconMapping,
@@ -450,7 +624,7 @@ function renderAll() {
 
     return new deck.ScatterplotLayer({
       id: `scatter-${id}`,
-      data: state.data.get(id) || [],
+      data,
       pickable: true,
       opacity: 0.86,
       stroked: true,
@@ -463,14 +637,6 @@ function renderAll() {
       lineWidthMinPixels: 1,
       onClick: ({ object }) => object && showDetail(object)
     });
-  });
-
-  state.deckOverlay.setProps({ layers });
-  els.activeCount.textContent = active.length;
-  els.entityCount.textContent = data.length.toLocaleString();
-  renderLayerControls();
-  renderFeeds();
-  refreshHealth();
 }
 
 function showDetail(item) {
@@ -582,90 +748,189 @@ async function refreshLiveLayer(id) {
   }
 }
 
+function pollDueLayers() {
+  const now = Date.now();
+  for (const [id, interval] of Object.entries(LAYER_REFRESH_MS)) {
+    if (!state.enabled.has(id)) continue;
+    const last = state.lastFetched.get(id) || 0;
+    if (now - last >= interval) refreshLiveLayer(id);
+  }
+}
+
 async function hydrateInitialLayers() {
   await Promise.all([...state.enabled].map((id) => ensureLayer(id)));
   renderAll();
 }
 
+// Short labels used to tag each recon-history row by its source tool.
+const RECON_TAB_LABELS = { crypto: "Wallet", sanctions: "SDN", intel: "IOC", cyber: "CVE", place: "Place" };
+// Maps a history entry's tool back to the function that re-runs the lookup.
+// `place` is the top-bar map search, which has no recon tab (handled below).
+const RECON_TOOLS = {
+  crypto: { run: runWalletLookup },
+  sanctions: { run: runSanctionsSearch },
+  intel: { run: runIntelLookup },
+  cyber: { run: runCveSearch },
+  place: { run: runPlaceSearch }
+};
+
+function switchReconTab(tabId) {
+  document.querySelectorAll(".tab, .tool-panel").forEach((el) => el.classList.remove("active"));
+  document.querySelector(`.tab[data-tab="${tabId}"]`)?.classList.add("active");
+  document.querySelector(`#${tabId}`)?.classList.add("active");
+}
+
+// Push a lookup onto the persisted history. `restore` maps input selectors to the
+// values needed to replay it. Identical prior lookups are dropped so the entry
+// re-surfaces at the top instead of duplicating.
+function recordRecon(tool, label, restore) {
+  const history = Array.isArray(store.reconHistory) ? store.reconHistory : [];
+  const deduped = history.filter((entry) => !(entry.tool === tool && entry.label === label));
+  deduped.unshift({ tool, label, restore, ts: Date.now() });
+  store.reconHistory = deduped.slice(0, RECON_HISTORY_LIMIT);
+  persist();
+  renderReconHistory();
+}
+
+function renderReconHistory() {
+  const panel = document.querySelector("#recon-history-panel");
+  const list = document.querySelector("#recon-history");
+  if (!panel || !list) return;
+  const history = Array.isArray(store.reconHistory) ? store.reconHistory : [];
+  panel.hidden = history.length === 0;
+  list.innerHTML = history.map((entry, index) => `
+    <button class="history-item" type="button" data-index="${index}">
+      <strong>${escapeHtml(entry.label)}</strong>
+      <span>${escapeHtml(RECON_TAB_LABELS[entry.tool] || entry.tool)}</span>
+    </button>
+  `).join("");
+  list.querySelectorAll(".history-item").forEach((button) => {
+    button.addEventListener("click", () => activateReconHistoryItem(history[Number(button.dataset.index)]));
+  });
+}
+
+function activateReconHistoryItem(entry) {
+  const tool = entry && RECON_TOOLS[entry.tool];
+  if (!tool) return;
+  // Only switch tabs for tools that have one — place search has no tab, so
+  // switching would blank the recon panel.
+  if (document.querySelector(`.tab[data-tab="${entry.tool}"]`)) switchReconTab(entry.tool);
+  for (const [selector, value] of Object.entries(entry.restore || {})) {
+    const field = document.querySelector(selector);
+    if (field) field.value = value;
+  }
+  tool.run();
+}
+
+async function runWalletLookup() {
+  const chain = document.querySelector("#chain").value;
+  const address = document.querySelector("#wallet").value.trim();
+  const result = document.querySelector("#wallet-result");
+  if (!address) return;
+  recordRecon("crypto", `${chain.toUpperCase()} ${address}`, { "#chain": chain, "#wallet": address });
+  result.textContent = "Checking chain data and SDN exposure...";
+  try {
+    const payload = await fetchJson(`/api/crypto/${chain}?address=${encodeURIComponent(address)}`);
+    result.innerHTML = `
+      <div class="${payload.sanctioned ? "badge danger" : "badge ok"}">${payload.sanctioned ? "SANCTIONED - OFAC SDN" : "No OFAC crypto match"}</div>
+      <pre>${escapeHtml(JSON.stringify(payload.data, null, 2).slice(0, 1800))}</pre>
+    `;
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
+async function runSanctionsSearch() {
+  const q = document.querySelector("#sanctions-query").value.trim();
+  const result = document.querySelector("#sanctions-result");
+  if (!q) return;
+  recordRecon("sanctions", q, { "#sanctions-query": q });
+  result.textContent = "Searching SDN mirror...";
+  try {
+    const payload = await fetchJson(`/api/sanctions?q=${encodeURIComponent(q)}`);
+    const results = payload.results || [];
+    result.innerHTML = results.length ? results.map((row) => `
+      <article class="result-item">
+        <strong>${escapeHtml(row.caption || row.id)}</strong>
+        <span>${escapeHtml((row.schema || "Entity") + " · " + (row.datasets?.[0] || "OpenSanctions"))}</span>
+      </article>
+    `).join("") : "No matches.";
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
+async function runIntelLookup() {
+  const kind = document.querySelector("#intel-kind").value;
+  const q = document.querySelector("#intel-query").value.trim();
+  const result = document.querySelector("#intel-result");
+  if (!q) return;
+  recordRecon("intel", `${kind}: ${q}`, { "#intel-kind": kind, "#intel-query": q });
+  result.textContent = "Checking intelligence sources...";
+  const route = {
+    ip: `/api/intel/ip?ip=${encodeURIComponent(q)}`,
+    domain: `/api/intel/virustotal/domain?domain=${encodeURIComponent(q)}`,
+    url: `/api/intel/virustotal/url?url=${encodeURIComponent(q)}`,
+    whois: `/api/intel/whois?query=${encodeURIComponent(q)}`
+  }[kind];
+  try {
+    const payload = await fetchJson(route);
+    result.innerHTML = kind === "whois"
+      ? renderWhois(payload)
+      : `<pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 2400))}</pre>`;
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
+function renderWhois(payload) {
+  const summary = payload.summary || {};
+  const sanctions = payload.sanctions || {};
+  const badge = sanctions.sanctioned
+    ? `<div class="badge danger">SANCTIONS MATCH — ${sanctions.flagged.map((row) => escapeHtml(row.name)).join(", ")}</div>`
+    : `<div class="badge ok">No OpenSanctions name match</div>`;
+  const rows = Object.entries(summary)
+    .filter(([, value]) => value != null && (!Array.isArray(value) || value.length))
+    .map(([key, value]) => `<p><strong>${escapeHtml(key)}</strong> ${escapeHtml(Array.isArray(value) ? value.join(", ") : String(value))}</p>`)
+    .join("");
+  const checked = (sanctions.checked || []).length
+    ? `<p><strong>names checked</strong> ${escapeHtml(sanctions.checked.join(", "))}</p>`
+    : "";
+  return `${badge}${rows}${checked}<pre>${escapeHtml(JSON.stringify(payload.rdap, null, 2).slice(0, 1200))}</pre>`;
+}
+
+async function runCveSearch() {
+  const q = document.querySelector("#cve-query").value.trim() || "kev";
+  const result = document.querySelector("#cve-result");
+  recordRecon("cyber", q, { "#cve-query": q });
+  result.textContent = "Searching NVD...";
+  try {
+    const payload = await fetchJson(`/api/cves?q=${encodeURIComponent(q)}`);
+    result.innerHTML = (payload.vulnerabilities || []).slice(0, 8).map((row) => `
+      <article class="result-item">
+        <strong>${escapeHtml(row.cve.id)}</strong>
+        <span>${escapeHtml(row.cve.descriptions?.[0]?.value || "No description").slice(0, 220)}</span>
+      </article>
+    `).join("") || "No CVEs found.";
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
 function wireReconTools() {
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".tab, .tool-panel").forEach((el) => el.classList.remove("active"));
-      tab.classList.add("active");
-      document.querySelector(`#${tab.dataset.tab}`).classList.add("active");
-    });
+    tab.addEventListener("click", () => switchReconTab(tab.dataset.tab));
   });
 
-  document.querySelector("#wallet-lookup").addEventListener("click", async () => {
-    const chain = document.querySelector("#chain").value;
-    const address = document.querySelector("#wallet").value.trim();
-    const result = document.querySelector("#wallet-result");
-    if (!address) return;
-    result.textContent = "Checking chain data and SDN exposure...";
-    try {
-      const payload = await fetchJson(`/api/crypto/${chain}?address=${encodeURIComponent(address)}`);
-      result.innerHTML = `
-        <div class="${payload.sanctioned ? "badge danger" : "badge ok"}">${payload.sanctioned ? "SANCTIONED - OFAC SDN" : "No OFAC crypto match"}</div>
-        <pre>${escapeHtml(JSON.stringify(payload.data, null, 2).slice(0, 1800))}</pre>
-      `;
-    } catch (error) {
-      result.textContent = error.message;
-    }
-  });
+  document.querySelector("#wallet-lookup").addEventListener("click", runWalletLookup);
+  document.querySelector("#sanctions-search").addEventListener("click", runSanctionsSearch);
+  document.querySelector("#intel-lookup").addEventListener("click", runIntelLookup);
+  document.querySelector("#cve-search").addEventListener("click", runCveSearch);
 
-  document.querySelector("#sanctions-search").addEventListener("click", async () => {
-    const q = document.querySelector("#sanctions-query").value.trim();
-    const result = document.querySelector("#sanctions-result");
-    if (!q) return;
-    result.textContent = "Searching SDN mirror...";
-    try {
-      const payload = await fetchJson(`/api/sanctions?q=${encodeURIComponent(q)}`);
-      const results = payload.results || [];
-      result.innerHTML = results.length ? results.map((row) => `
-        <article class="result-item">
-          <strong>${escapeHtml(row.caption || row.id)}</strong>
-          <span>${escapeHtml((row.schema || "Entity") + " · " + (row.datasets?.[0] || "OpenSanctions"))}</span>
-        </article>
-      `).join("") : "No matches.";
-    } catch (error) {
-      result.textContent = error.message;
-    }
-  });
-
-  document.querySelector("#intel-lookup").addEventListener("click", async () => {
-    const kind = document.querySelector("#intel-kind").value;
-    const q = document.querySelector("#intel-query").value.trim();
-    const result = document.querySelector("#intel-result");
-    if (!q) return;
-    result.textContent = "Checking intelligence sources...";
-    const route = {
-      ip: `/api/intel/ip?ip=${encodeURIComponent(q)}`,
-      domain: `/api/intel/virustotal/domain?domain=${encodeURIComponent(q)}`,
-      url: `/api/intel/virustotal/url?url=${encodeURIComponent(q)}`
-    }[kind];
-    try {
-      const payload = await fetchJson(route);
-      result.innerHTML = `<pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 2400))}</pre>`;
-    } catch (error) {
-      result.textContent = error.message;
-    }
-  });
-
-  document.querySelector("#cve-search").addEventListener("click", async () => {
-    const q = document.querySelector("#cve-query").value.trim() || "kev";
-    const result = document.querySelector("#cve-result");
-    result.textContent = "Searching NVD...";
-    try {
-      const payload = await fetchJson(`/api/cves?q=${encodeURIComponent(q)}`);
-      result.innerHTML = (payload.vulnerabilities || []).slice(0, 8).map((row) => `
-        <article class="result-item">
-          <strong>${escapeHtml(row.cve.id)}</strong>
-          <span>${escapeHtml(row.cve.descriptions?.[0]?.value || "No description").slice(0, 220)}</span>
-        </article>
-      `).join("") || "No CVEs found.";
-    } catch (error) {
-      result.textContent = error.message;
-    }
+  document.querySelector("#clear-recon-history").addEventListener("click", () => {
+    store.reconHistory = [];
+    persist();
+    renderReconHistory();
   });
 
   document.querySelector("#refresh-active").addEventListener("click", async () => {
@@ -673,15 +938,26 @@ function wireReconTools() {
     await hydrateInitialLayers();
   });
 
+  document.querySelector("#export-snapshot").addEventListener("click", exportSnapshot);
+
   document.querySelector("#place-search").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
-    const q = event.target.value.trim().toLowerCase();
-    const item = [...state.data.values()].flat().find((row) => row.name?.toLowerCase().includes(q) || row.place?.toLowerCase().includes(q));
-    if (item) {
-      state.map.flyTo({ center: [item.lon, item.lat], zoom: 5 });
-      showDetail(item);
-    }
+    runPlaceSearch();
   });
+
+  renderReconHistory();
+}
+
+function runPlaceSearch() {
+  const q = document.querySelector("#place-search").value.trim();
+  if (!q) return;
+  recordRecon("place", q, { "#place-search": q });
+  const needle = q.toLowerCase();
+  const item = [...state.data.values()].flat().find((row) => row.name?.toLowerCase().includes(needle) || row.place?.toLowerCase().includes(needle));
+  if (item) {
+    state.map.flyTo({ center: [item.lon, item.lat], zoom: 5 });
+    showDetail(item);
+  }
 }
 
 function tickClock() {
@@ -693,11 +969,102 @@ function tickClock() {
   }).format(new Date());
 }
 
+// Trim an entity to the fields worth putting in an exported analyst snapshot.
+function snapshotEntity(item) {
+  return {
+    id: item.id,
+    layer: item.layer,
+    type: item.type,
+    name: item.name,
+    lat: item.lat,
+    lon: item.lon,
+    severity: item.severity,
+    ...(item.magnitude != null ? { magnitude: item.magnitude } : {}),
+    ...(item.confidence ? { confidence: item.confidence } : {}),
+    ...(item.time ? { time: item.time } : {}),
+    ...(item.source ? { source: item.source } : {}),
+    ...(item.url ? { url: item.url } : {}),
+    ...(item.summary || item.text ? { note: String(item.summary || item.text).slice(0, 300) } : {})
+  };
+}
+
+// Build a self-contained snapshot of the current situational picture: what is
+// active, how it is filtered, where the map is, and every currently visible
+// entity — the machine-readable artifact behind an analyst report.
+function buildSnapshot() {
+  const active = [...state.enabled];
+  const layers = active.map((id) => {
+    const rows = visibleEntities(id);
+    return {
+      id,
+      label: layerDefinitions.find((layer) => layer.id === id)?.label || id,
+      count: rows.length,
+      entities: rows.map(snapshotEntity)
+    };
+  });
+  const center = state.map ? state.map.getCenter() : null;
+  return {
+    tool: "OSIRIS Situational Dashboard",
+    generatedAt: new Date().toISOString(),
+    viewport: center ? { center: [center.lng, center.lat], zoom: state.map.getZoom() } : null,
+    filters: { minSeverity: state.minSeverity },
+    summary: {
+      activeLayers: active.length,
+      visibleEntities: layers.reduce((sum, layer) => sum + layer.count, 0)
+    },
+    layers,
+    reconHistory: (Array.isArray(store.reconHistory) ? store.reconHistory : [])
+      .map((entry) => ({ tool: entry.tool, label: entry.label, at: new Date(entry.ts).toISOString() }))
+  };
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportSnapshot() {
+  const snapshot = buildSnapshot();
+  // Attach live source telemetry for provenance; best-effort so export never fails on it.
+  try {
+    const health = await fetchJson("/api/health");
+    snapshot.sources = (health.sources || []).filter((row) => row.id !== "last-error");
+  } catch {
+    snapshot.sources = [];
+  }
+  const stamp = snapshot.generatedAt.replace(/[:.]/g, "-").slice(0, 19);
+  downloadJson(snapshot, `osiris-snapshot-${stamp}.json`);
+}
+
+function wireSeverityFilter() {
+  const slider = document.querySelector("#min-severity");
+  const label = document.querySelector("#severity-value");
+  slider.value = String(state.minSeverity);
+  label.textContent = String(state.minSeverity);
+  slider.addEventListener("input", () => {
+    state.minSeverity = Number(slider.value);
+    label.textContent = slider.value;
+    store.minSeverity = state.minSeverity;
+    persist();
+    renderAll();
+  });
+}
+
 initMap();
 renderLayerControls();
 wireReconTools();
+wireSeverityFilter();
 tickClock();
 setInterval(tickClock, 1000);
-setInterval(() => refreshLiveLayer("aviation"), AVIATION_REFRESH_MS);
-hydrateInitialLayers();
+setInterval(pollDueLayers, POLL_TICK_MS);
+loadStaticLayers()
+  .then((data) => { staticLayers = data; })
+  .finally(hydrateInitialLayers);
 refreshHealth();

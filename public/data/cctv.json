@@ -1,0 +1,100 @@
+{
+  "dataset": "cctv",
+  "version": "1.0.0",
+  "updated": "2026-07-17",
+  "source": "Curated: public DOT / transport traffic-camera locations",
+  "license": "Curated public coordinates",
+  "count": 10,
+  "records": [
+    {
+      "id": "cctv-TfL Blackwall Tunnel",
+      "type": "CCTV",
+      "name": "TfL Blackwall Tunnel",
+      "lat": 51.5065,
+      "lon": 0.0085,
+      "source": "TfL",
+      "severity": 1
+    },
+    {
+      "id": "cctv-TfL Hyde Park Corner",
+      "type": "CCTV",
+      "name": "TfL Hyde Park Corner",
+      "lat": 51.5027,
+      "lon": -0.1527,
+      "source": "TfL",
+      "severity": 1
+    },
+    {
+      "id": "cctv-WSDOT Seattle I-5",
+      "type": "CCTV",
+      "name": "WSDOT Seattle I-5",
+      "lat": 47.6062,
+      "lon": -122.3321,
+      "source": "WSDOT",
+      "severity": 1
+    },
+    {
+      "id": "cctv-WSDOT Tacoma Narrows",
+      "type": "CCTV",
+      "name": "WSDOT Tacoma Narrows",
+      "lat": 47.2676,
+      "lon": -122.5517,
+      "source": "WSDOT",
+      "severity": 1
+    },
+    {
+      "id": "cctv-Caltrans Bay Bridge",
+      "type": "CCTV",
+      "name": "Caltrans Bay Bridge",
+      "lat": 37.8181,
+      "lon": -122.3497,
+      "source": "Caltrans",
+      "severity": 1
+    },
+    {
+      "id": "cctv-Caltrans LA 405",
+      "type": "CCTV",
+      "name": "Caltrans LA 405",
+      "lat": 34.0522,
+      "lon": -118.2437,
+      "source": "Caltrans",
+      "severity": 1
+    },
+    {
+      "id": "cctv-NYC DOT FDR",
+      "type": "CCTV",
+      "name": "NYC DOT FDR",
+      "lat": 40.758,
+      "lon": -73.9855,
+      "source": "NYC DOT",
+      "severity": 1
+    },
+    {
+      "id": "cctv-NYC DOT Brooklyn Bridge",
+      "type": "CCTV",
+      "name": "NYC DOT Brooklyn Bridge",
+      "lat": 40.7061,
+      "lon": -73.9969,
+      "source": "NYC DOT",
+      "severity": 1
+    },
+    {
+      "id": "cctv-VicRoads West Gate",
+      "type": "CCTV",
+      "name": "VicRoads West Gate",
+      "lat": -37.8298,
+      "lon": 144.898,
+      "source": "VicRoads",
+      "severity": 1
+    },
+    {
+      "id": "cctv-VicRoads Monash",
+      "type": "CCTV",
+      "name": "VicRoads Monash",
+      "lat": -37.91,
+      "lon": 145.13,
+      "source": "VicRoads",
+      "severity": 1
+    }
+  ]
+}

@@ -9,7 +9,8 @@ import {
   ipIntel,
   virusTotalDomainLookup,
   virusTotalIpLookup,
-  virusTotalUrlLookup
+  virusTotalUrlLookup,
+  whoisLookup
 } from "./src/adapters/intel.js";
 import { btcLookup, cveSearch, ethLookup, sanctionsSearch } from "./src/adapters/recon.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
@@ -180,6 +181,13 @@ async function handleApi(req, res, url) {
       const ip = url.searchParams.get("ip");
       if (!ip) return sendJson(res, 400, { error: "ip required" });
       const data = await withHealth("ip-intel", "AbuseIPDB, GreyNoise, VirusTotal", () => ipIntel(ip));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/intel/whois") {
+      const query = url.searchParams.get("query") || url.searchParams.get("domain") || url.searchParams.get("ip");
+      if (!query) return sendJson(res, 400, { error: "query required" });
+      const data = await withHealth("whois", "RDAP + OpenSanctions", () => whoisLookup(query));
       return sendJson(res, 200, data);
     }
 

@@ -26,9 +26,16 @@
         <section class="panel">
           <header>
             <h2>Layers</h2>
-            <button class="ghost-button" id="refresh-active" type="button">Refresh</button>
+            <div class="panel-actions">
+              <button class="ghost-button" id="export-snapshot" type="button">Export</button>
+              <button class="ghost-button" id="refresh-active" type="button">Refresh</button>
+            </div>
           </header>
           <div id="layer-list" class="layer-list"></div>
+          <div class="severity-filter">
+            <label for="min-severity">Min severity <span id="severity-value">1</span></label>
+            <input id="min-severity" type="range" min="1" max="5" step="1" value="1">
+          </div>
         </section>
       </aside>
 
@@ -82,11 +89,12 @@
               <option value="ip">IP</option>
               <option value="domain">Domain</option>
               <option value="url">URL</option>
+              <option value="whois">WHOIS</option>
             </select>
             <input id="intel-query" placeholder="IP, domain, or URL">
             <button id="intel-lookup" type="button">Lookup</button>
           </div>
-          <div id="intel-result" class="result-box">IP lookups use AbuseIPDB, GreyNoise, and VirusTotal when keys are configured. Domain and URL lookups use VirusTotal.</div>
+          <div id="intel-result" class="result-box">IP lookups use AbuseIPDB, GreyNoise, and VirusTotal when keys are configured. Domain and URL lookups use VirusTotal. WHOIS is keyless (RDAP) and cross-checks registrant names against OpenSanctions.</div>
         </section>
 
         <section class="tool-panel" id="cyber">
@@ -102,6 +110,14 @@
           <h2>Live Desk</h2>
           <div id="source-health" class="source-health"></div>
           <div id="feed-list" class="feed-list"></div>
+        </section>
+
+        <section class="recon-history" id="recon-history-panel" hidden>
+          <header>
+            <h2>Recent lookups</h2>
+            <button class="ghost-button" id="clear-recon-history" type="button">Clear</button>
+          </header>
+          <div id="recon-history" class="history-list"></div>
         </section>
       </aside>
     </main>
