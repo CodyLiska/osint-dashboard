@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchText } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchTextRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 function parseCsv(text) {
@@ -48,10 +48,10 @@ export async function firesLayer(bounds) {
     .filter(Boolean);
   const dayRange = process.env.FIRMS_DAY_RANGE || "1";
   const key = `firms:${sources.join("+")}:${area}:${dayRange}`;
-  const result = await cached(key, 10 * 60_000, async () => {
+  const result = await cachedResilient(key, 10 * 60_000, async () => {
     const texts = await Promise.all(sources.map(async (source) => {
       const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(mapKey)}/${source}/${area}/${dayRange}`;
-      return { source, text: await fetchText(url) };
+      return { source, text: await fetchTextRetry(url) };
     }));
     return texts.flatMap(({ source, text }) => parseCsv(text).map((row) => ({ ...row, sourceProduct: source })));
   });
@@ -81,6 +81,7 @@ export async function firesLayer(bounds) {
     entities,
     meta: {
       cached: result.cached,
+      stale: Boolean(result.stale),
       configured: true,
       source: "NASA FIRMS",
       sourceProducts: sources,

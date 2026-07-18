@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 const nvdBase = "https://services.nvd.nist.gov/rest/json/cves/2.0";
@@ -35,17 +35,17 @@ function severityFromScore(score, exploited, epss) {
 
 async function nvdQuery(key, params, ttlMs = 30 * 60_000) {
   const headers = process.env.NVD_API_KEY ? { apiKey: process.env.NVD_API_KEY } : {};
-  const result = await cached(`nvd:${key}`, ttlMs, () =>
-    fetchJson(`${nvdBase}?${params.toString()}`, { headers })
+  const result = await cachedResilient(`nvd:${key}`, ttlMs, () =>
+    fetchJsonRetry(`${nvdBase}?${params.toString()}`, { headers })
   );
-  return { ...result.value, cached: result.cached };
+  return { ...result.value, cached: result.cached, stale: result.stale };
 }
 
 async function cisaKevCatalog() {
-  const result = await cached("cisa:kev", 60 * 60_000, () =>
-    fetchJson("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json")
+  const result = await cachedResilient("cisa:kev", 60 * 60_000, () =>
+    fetchJsonRetry("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json")
   );
-  return { ...result.value, cached: result.cached };
+  return { ...result.value, cached: result.cached, stale: result.stale };
 }
 
 async function epssFor(cves) {
@@ -58,8 +58,8 @@ async function epssFor(cves) {
   const rows = [];
   for (const chunk of chunks) {
     const params = new URLSearchParams({ cve: chunk.join(",") });
-    const result = await cached(`epss:${chunk.join(",")}`, 6 * 60 * 60_000, () =>
-      fetchJson(`https://api.first.org/data/v1/epss?${params}`)
+    const result = await cachedResilient(`epss:${chunk.join(",")}`, 6 * 60 * 60_000, () =>
+      fetchJsonRetry(`https://api.first.org/data/v1/epss?${params}`)
     );
     rows.push(...(result.value.data || []));
   }
@@ -198,7 +198,8 @@ export async function cyberLayer() {
         epssEnriched: [...epss.keys()].length
       },
       nvdApiKeyConfigured: Boolean(process.env.NVD_API_KEY),
-      cached: Boolean(nvdKev.cached && critical.cached && high.cached)
+      cached: Boolean(nvdKev.cached && critical.cached && high.cached),
+      stale: Boolean(nvdKev.stale || critical.stale || high.stale || kevCatalog.stale)
     }
   };
 }

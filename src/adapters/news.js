@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 const sourceAnchors = {
@@ -69,8 +69,8 @@ export async function newsLayer() {
     apiKey
   });
 
-  const result = await cached(`newsapi:${query}:${max}`, 15 * 60_000, () =>
-    fetchJson(`https://newsapi.org/v2/everything?${params}`)
+  const result = await cachedResilient(`newsapi:${query}:${max}`, 15 * 60_000, () =>
+    fetchJsonRetry(`https://newsapi.org/v2/everything?${params}`)
   );
 
   const articles = (result.value.articles || []).slice(0, max);
@@ -101,6 +101,7 @@ export async function newsLayer() {
       count: entities.length,
       totalResults: result.value.totalResults,
       cached: result.cached,
+      stale: Boolean(result.stale),
       query
     }
   };

@@ -2,7 +2,7 @@
 // public/data/. loadStaticLayers() fetches the ones the app renders client-side
 // (chokepoints, cctv, conflict) and returns them keyed by layer id. Each fetch is
 // best-effort: a missing dataset yields an empty layer rather than a hard failure.
-const STATIC_DATASETS = ["chokepoints", "cctv", "conflict"];
+const STATIC_DATASETS = ["chokepoints", "cctv", "conflict", "military"];
 
 export async function loadStaticLayers() {
   const entries = await Promise.all(STATIC_DATASETS.map(async (name) => {
@@ -34,5 +34,6 @@ export const layerDefinitions = [
   { id: "crypto", label: "Crypto Intel", color: [234, 179, 8], live: true },
   { id: "sanctions", label: "Sanctions Intel", color: [220, 38, 38], live: true },
   { id: "maritime", label: "Maritime Intel", color: [45, 212, 191], live: true },
-  { id: "military", label: "Military Watch", color: [148, 163, 184], live: false }
+  { id: "military", label: "Military Bases", color: [148, 163, 184], staticKey: "military" },
+  { id: "military-air", label: "Military Aircraft", color: [245, 158, 11], live: true }
 ];

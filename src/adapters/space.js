@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 function latest(rows) {
@@ -40,8 +40,8 @@ async function n2yoSatellites() {
 
   const rows = [];
   for (const id of ids) {
-    const result = await cached(`n2yo:position:${id}:${observerLat}:${observerLon}:${observerAlt}`, 5 * 60_000, () =>
-      fetchJson(`https://api.n2yo.com/rest/v1/satellite/positions/${id}/${observerLat}/${observerLon}/${observerAlt}/1/&apiKey=${encodeURIComponent(apiKey)}`)
+    const result = await cachedResilient(`n2yo:position:${id}:${observerLat}:${observerLon}:${observerAlt}`, 5 * 60_000, () =>
+      fetchJsonRetry(`https://api.n2yo.com/rest/v1/satellite/positions/${id}/${observerLat}/${observerLon}/${observerAlt}/1/&apiKey=${encodeURIComponent(apiKey)}`)
     ).catch(() => null);
     const position = result?.value?.positions?.[0];
     if (!position) continue;
@@ -75,10 +75,10 @@ async function n2yoSatellites() {
 }
 
 export async function spaceWeatherLayer() {
-  const result = await cached("swpc:space-weather", 10 * 60_000, async () => {
+  const result = await cachedResilient("swpc:space-weather", 10 * 60_000, async () => {
     const [alerts, kp] = await Promise.all([
-      fetchJson("https://services.swpc.noaa.gov/products/alerts.json"),
-      fetchJson("https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json")
+      fetchJsonRetry("https://services.swpc.noaa.gov/products/alerts.json"),
+      fetchJsonRetry("https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json")
     ]);
     return { alerts, kp };
   });
@@ -120,6 +120,7 @@ export async function spaceWeatherLayer() {
     entities,
     meta: {
       cached: result.cached,
+      stale: Boolean(result.stale),
       source: satellites.meta.configured ? "NOAA SWPC, N2YO" : "NOAA SWPC",
       alertCount: recentAlerts.length,
       kp: kp?.Kp,

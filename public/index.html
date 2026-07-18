@@ -28,6 +28,7 @@
           <header>
             <h2>Layers</h2>
             <div class="panel-actions">
+              <button class="ghost-button" id="clear-layers" type="button">Clear</button>
               <button class="ghost-button" id="export-snapshot" type="button">Export</button>
               <button class="ghost-button" id="refresh-active" type="button">Refresh</button>
             </div>
@@ -43,11 +44,13 @@
       <section class="map-region">
         <div id="map"></div>
         <div class="topbar">
+          <button class="pane-toggle" id="toggle-left" type="button" title="Toggle layers panel" aria-label="Toggle layers panel"></button>
           <div class="search-box">
             <span>⌕</span>
             <input id="place-search" type="search" placeholder="Focus city, port, chokepoint, conflict zone">
           </div>
           <div id="clock" class="clock"></div>
+          <button class="pane-toggle" id="toggle-right" type="button" title="Toggle recon panel" aria-label="Toggle recon panel"></button>
         </div>
         <div id="entity-detail" class="entity-detail" hidden></div>
       </section>

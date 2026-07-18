@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cached, clearCache } from "../src/lib/cache.js";
+import { cached, cachedResilient, clearCache } from "../src/lib/cache.js";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,6 +34,37 @@ test("entry expires after its TTL and reloads", async () => {
   const r = await cached("t:c", 5, load);
   assert.equal(calls, 2);
   assert.equal(r.cached, false);
+});
+
+test("cachedResilient serves a stale value when the loader fails after expiry", async () => {
+  clearCache();
+  const r1 = await cachedResilient("r:a", 5, async () => "good");
+  assert.equal(r1.value, "good");
+  assert.equal(r1.stale, undefined);
+  await wait(20); // let it expire
+  const r2 = await cachedResilient("r:a", 5, async () => { throw new Error("503"); });
+  assert.equal(r2.value, "good"); // stale value served instead of throwing
+  assert.equal(r2.stale, true);
+});
+
+test("cachedResilient throws when the loader fails and nothing is cached", async () => {
+  clearCache();
+  await assert.rejects(cachedResilient("r:cold", 5, async () => { throw new Error("503"); }), /503/);
+});
+
+test("cachedResilient de-duplicates concurrent loads for the same key", async () => {
+  clearCache();
+  let calls = 0;
+  const load = async () => { calls++; await wait(10); return calls; };
+  const [a, b, c] = await Promise.all([
+    cachedResilient("r:dup", 60_000, load),
+    cachedResilient("r:dup", 60_000, load),
+    cachedResilient("r:dup", 60_000, load)
+  ]);
+  assert.equal(calls, 1); // one shared upstream call
+  assert.equal(a.value, 1);
+  assert.equal(b.value, 1);
+  assert.equal(c.value, 1);
 });
 
 test("clearCache(prefix) removes only matching keys", async () => {

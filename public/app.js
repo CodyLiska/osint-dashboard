@@ -3,6 +3,22 @@ import { layerDefinitions, loadStaticLayers } from "./data.js";
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
 let staticLayers = {};
 
+// Gazetteer places (name/lat/lon/aliases) used as the place-search fallback so
+// typing any known city/port/capital recentres the map even when no live entity
+// for it is loaded. Best-effort: an empty list just limits search to entities.
+let gazetteerPlaces = [];
+
+async function loadGazetteer() {
+  try {
+    const response = await fetch("/data/gazetteer.json");
+    if (!response.ok) return;
+    const doc = await response.json();
+    gazetteerPlaces = Array.isArray(doc.records) ? doc.records : [];
+  } catch {
+    // best-effort; place search falls back to loaded entities only
+  }
+}
+
 // Persisted UI state (layer visibility, map viewport, recon history) lives under
 // one namespaced localStorage key. All access is best-effort: private-mode blocks
 // or a full quota must never break the dashboard.
@@ -31,6 +47,7 @@ function persist() {
 const state = {
   enabled: new Set(Array.isArray(store.enabled) ? store.enabled : DEFAULT_LAYERS),
   data: new Map(),
+  meta: new Map(),
   fetched: new Set(),
   refreshing: new Set(),
   lastFetched: new Map(),
@@ -44,6 +61,7 @@ const state = {
 const LAYER_REFRESH_MS = {
   seismic: 60_000,
   aviation: 60_000,
+  "military-air": 60_000,
   maritime: 60_000,
   telegram: 120_000,
   fires: 300_000,
@@ -59,12 +77,12 @@ const LAYER_REFRESH_MS = {
 // are measured from the last actual fetch (a manual or viewport refresh resets the
 // clock) rather than fixed wall-clock multiples.
 const POLL_TICK_MS = 15_000;
-const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "fires", "weather", "ports"]);
+const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports"]);
 
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-const CLUSTER_LAYERS = new Set(["aviation", "fires", "seismic", "news", "telegram", "maritime", "ports"]);
+const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports"]);
 const CLUSTER_MIN_POINTS = 15;
 const CLUSTER_MAX_ZOOM = 5;
 
@@ -79,6 +97,7 @@ const els = {
 };
 
 const palette = new Map(layerDefinitions.map((layer) => [layer.id, layer.color]));
+const layerLabels = new Map(layerDefinitions.map((layer) => [layer.id, layer.label]));
 const aircraftIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <path fill="white" d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/>
@@ -185,6 +204,61 @@ const sanctionsIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 const sanctionsIconMapping = {
   sanctions: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 50, mask: true }
 };
+const chokepointsIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="M8 14 L8 50 L28 32 Z M56 14 L56 50 L36 32 Z"/>
+</svg>
+`)}`;
+const chokepointsIconMapping = {
+  chokepoint: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
+const cctvIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="M10 20 h24 v14 h-24 z M34 24 l10 -3 v12 l-10 -3 z M20 34 h4 v8 h8 v3 h-20 v-3 h8 z"/>
+</svg>
+`)}`;
+const cctvIconMapping = {
+  cctv: { x: 0, y: 0, width: 64, height: 64, anchorX: 22, anchorY: 45, mask: true }
+};
+const newsIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="M13 46 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 z"/>
+  <path fill="white" d="M18 36 A10 10 0 0 1 28 46 L33 46 A15 15 0 0 0 18 31 Z"/>
+  <path fill="white" d="M18 26 A20 20 0 0 1 38 46 L43 46 A25 25 0 0 0 18 21 Z"/>
+</svg>
+`)}`;
+const newsIconMapping = {
+  news: { x: 0, y: 0, width: 64, height: 64, anchorX: 18, anchorY: 46, mask: true }
+};
+const conflictSword = "M32 4 L35 9 L35 38 L29 38 L29 9 Z M22 37 H42 V43 H22 Z M30 43 H34 V52 H30 Z M28.5 55 a3.5 3.5 0 1 0 7 0 a3.5 3.5 0 1 0 -7 0 Z";
+const conflictIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="white">
+    <path transform="rotate(45 32 32)" d="${conflictSword}"/>
+    <path transform="rotate(-45 32 32)" d="${conflictSword}"/>
+  </g>
+</svg>
+`)}`;
+const conflictIconMapping = {
+  conflict: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
+const maritimeIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="M8 40 H56 L49 51 H15 Z M22 28 H42 V40 H22 Z M30 20 H36 V28 H30 Z"/>
+</svg>
+`)}`;
+const maritimeIconMapping = {
+  maritime: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 51, mask: true }
+};
+const militaryStar = "M32 6 L38.5 23.1 L56.7 24 L42.5 35.4 L47.3 53 L32 43 L16.7 53 L21.5 35.4 L7.3 24 L25.5 23.1 Z";
+const militaryIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${militaryStar}"/>
+</svg>
+`)}`;
+const militaryIconMapping = {
+  military: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
 const menuIcons = {
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
@@ -195,7 +269,14 @@ const menuIcons = {
   telegram: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M58.8 8.5 49.3 54c-.7 3.2-2.6 4-5.2 2.5L29.6 45.8l-7 6.8c-.8.8-1.4 1.4-2.9 1.4l1-14.8L47.8 14.7c1.2-1.1-.3-1.7-1.8-.6L12.5 35.2 1.9 31.9c-3.1-1-3.2-3.1.7-4.6L54.1 7.4c2.4-.9 4.5.6 4.7 1.1Z"/></svg>`,
   cyber: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4 9 13v17c0 15.2 9.7 25.8 23 30 13.3-4.2 23-14.8 23-30V13L32 4Zm0 9.2 14 5.5V30c0 9.9-5.3 17.3-14 21-8.7-3.7-14-11.1-14-21V18.7l14-5.5Z"/><path d="M31.8 20c4.4 0 7.8 3.1 8.2 7.3h4.5v5H40v4h4.5v5H39c-1.4 3.3-4.1 5.3-7.2 5.3s-5.8-2-7.2-5.3H19v-5h4.5v-4H19v-5h4.5c.5-4.2 3.9-7.3 8.3-7.3Zm-3.4 12.3v4.2c0 3.1 1.4 5 3.4 5s3.4-1.9 3.4-5v-4.2h-6.8Zm.2-5h6.4c-.5-1.5-1.6-2.4-3.2-2.4s-2.7.9-3.2 2.4Z"/></svg>`,
   crypto: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4c15.5 0 28 6.3 28 14v28c0 7.7-12.5 14-28 14S4 53.7 4 46V18C4 10.3 16.5 4 32 4Zm0 8C20.4 12 12 15.6 12 18s8.4 6 20 6 20-3.6 20-6-8.4-6-20-6Zm20 17.1C47 32.1 40 34 32 34s-15-1.9-20-4.9V34c0 2.4 8.4 6 20 6s20-3.6 20-6v-4.9Zm0 15.8C47 47.9 40 50 32 50s-15-2.1-20-5.1V46c0 2.4 8.4 6 20 6s20-3.6 20-6v-1.1Z"/><path d="M34.8 14.5v2.3c3.5.5 6.2 2.3 6.2 5.4 0 2.4-1.5 4-4.1 4.9 3 .8 4.9 2.6 4.9 5.5 0 3.6-2.9 5.8-7 6.3v2.6h-4.1V39h-5.1v2.5h-3.8V14.5h3.8V17h5.1v-2.5h4.1Zm-5.1 6.4v4.5h3.4c2 0 3.2-.7 3.2-2.2s-1.2-2.3-3.3-2.3h-3.3Zm0 8.4v5.5h3.9c2.1 0 3.4-1 3.4-2.7s-1.3-2.8-3.6-2.8h-3.7Z"/></svg>`,
-  sanctions: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4 8 14v16c0 15.6 10.1 26.1 24 30 13.9-3.9 24-14.4 24-30V14L32 4Zm0 8.8 16 6.7V30c0 10.5-5.8 18.1-16 21.5C21.8 48.1 16 40.5 16 30V19.5l16-6.7Z"/><path d="M24 24h16v5H24zm0 9h16v5H24zm0 9h10v5H24z"/><path d="m44.4 40.2 3.4 3.4 3.4-3.4 3.6 3.6-3.4 3.4 3.4 3.4-3.6 3.6-3.4-3.4-3.4 3.4-3.6-3.6 3.4-3.4-3.4-3.4z"/></svg>`
+  sanctions: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4 8 14v16c0 15.6 10.1 26.1 24 30 13.9-3.9 24-14.4 24-30V14L32 4Zm0 8.8 16 6.7V30c0 10.5-5.8 18.1-16 21.5C21.8 48.1 16 40.5 16 30V19.5l16-6.7Z"/><path d="M24 24h16v5H24zm0 9h16v5H24zm0 9h10v5H24z"/><path d="m44.4 40.2 3.4 3.4 3.4-3.4 3.6 3.6-3.4 3.4 3.4 3.4-3.6 3.6-3.4-3.4-3.4 3.4-3.6-3.6 3.4-3.4-3.4-3.4z"/></svg>`,
+  chokepoints: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 14 L8 50 L28 32 Z M56 14 L56 50 L36 32 Z"/></svg>`,
+  cctv: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 20 h24 v14 h-24 z M34 24 l10 -3 v12 l-10 -3 z M20 34 h4 v8 h8 v3 h-20 v-3 h8 z"/></svg>`,
+  news: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 46 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 z"/><path d="M18 36 A10 10 0 0 1 28 46 L33 46 A15 15 0 0 0 18 31 Z"/><path d="M18 26 A20 20 0 0 1 38 46 L43 46 A25 25 0 0 0 18 21 Z"/></svg>`,
+  conflict: `<svg viewBox="0 0 64 64" aria-hidden="true"><path transform="rotate(45 32 32)" d="${conflictSword}"/><path transform="rotate(-45 32 32)" d="${conflictSword}"/></svg>`,
+  maritime: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 40 H56 L49 51 H15 Z M22 28 H42 V40 H22 Z M30 20 H36 V28 H30 Z"/></svg>`,
+  military: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${militaryStar}"/></svg>`,
+  "military-air": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`
 };
 
 function initMap() {
@@ -238,17 +319,30 @@ function saveViewport() {
 function renderLayerControls() {
   els.layerList.innerHTML = "";
   for (const layer of layerDefinitions) {
-    const count = visibleEntities(layer.id).length;
+    // Static datasets are preloaded, so show their available size even when the
+    // layer is off; live layers only have a count once fetched.
+    const count = layer.staticKey && !state.data.has(layer.id)
+      ? (staticLayers[layer.staticKey] || []).length
+      : visibleEntities(layer.id).length;
     const menuIcon = menuIcons[layer.id] || "";
     // No live adapter and no static dataset — nothing to load, so the toggle is
     // disabled rather than silently doing nothing when checked.
     const unavailable = !layer.live && !layer.staticKey;
+    // Warn on an enabled live layer that is running keyless/fallback (e.g. FIRMS
+    // with no key returns 0) or serving stale cached data because its upstream is
+    // down — so an empty or old count isn't misread as "no data".
+    const meta = state.meta.get(layer.id) || {};
+    const enabled = state.enabled.has(layer.id);
+    let flag = "";
+    if (enabled && meta.configured === false) flag = meta.message || "Running without an API key — add one for live data.";
+    else if (enabled && meta.stale) flag = "Showing cached data — upstream currently unavailable.";
     const row = document.createElement("label");
-    row.className = `layer-row${unavailable ? " unavailable" : ""}`;
+    row.className = `layer-row${unavailable ? " unavailable" : ""}${flag ? " flagged" : ""}`;
+    if (flag) row.title = flag;
     row.innerHTML = `
-      <input type="checkbox" ${state.enabled.has(layer.id) ? "checked" : ""}${unavailable ? " disabled title=\"No data source yet\"" : ""} data-layer="${layer.id}">
+      <input type="checkbox" ${enabled ? "checked" : ""}${unavailable ? " disabled title=\"No data source yet\"" : ""} data-layer="${layer.id}">
       <span class="swatch ${menuIcon ? "icon-swatch" : ""}" style="--swatch: rgb(${layer.color.join(",")})">${menuIcon}</span>
-      <span class="layer-label">${layer.label}${unavailable ? " (soon)" : ""}</span>
+      <span class="layer-label">${layer.label}${unavailable ? " (soon)" : ""}${flag ? ` <span class="flag-mark" aria-hidden="true">⚠</span>` : ""}</span>
       <strong>${count}</strong>
     `;
     els.layerList.append(row);
@@ -289,7 +383,7 @@ async function ensureLayer(id, force = false) {
       state.data.set(id, await fetchLayer(id));
     } else if (id === "fires" || id === "weather" || id === "ports") {
       state.data.set(id, await fetchLayer(id, true));
-    } else if (id === "aviation") {
+    } else if (id === "aviation" || id === "military-air") {
       state.data.set(id, await fetchLayer(id, true));
     } else if (id === "telegram" || id === "space" || id === "crypto" || id === "sanctions" || id === "news") {
       state.data.set(id, await fetchLayer(id));
@@ -330,6 +424,7 @@ async function fetchLayer(id, withBounds = false) {
   const suffix = params.toString() ? `?${params}` : "";
   const payload = await fetchJson(`/api/layers/${id}${suffix}`);
   await refreshHealth();
+  state.meta.set(id, payload.meta || {});
   return payload.entities || [];
 }
 
@@ -420,7 +515,9 @@ function buildClusterLayers(id, clusters) {
   ];
 }
 
-function renderAll() {
+// Rebuild only the map layers + top-line counts. Cheap enough to run on the
+// animation tick; deliberately does NOT touch the DOM panels or hit /api/health.
+function renderMap() {
   const active = [...state.enabled];
   const zoom = state.map ? state.map.getZoom() : 0;
   const layers = [];
@@ -441,9 +538,48 @@ function renderAll() {
   state.deckOverlay.setProps({ layers });
   els.activeCount.textContent = active.length;
   els.entityCount.textContent = visibleTotal.toLocaleString();
+}
+
+function renderAll() {
+  renderMap();
   renderLayerControls();
   renderFeeds();
   refreshHealth();
+}
+
+// Between server refreshes an aircraft's position is static, so at map scale it
+// looks frozen. Dead-reckon each plane forward from its last known ground speed
+// and heading every tick so motion is continuous; the next server refresh snaps
+// it back to truth. Only the map is re-rendered (not the panels).
+const DEAD_RECKON_MS = 1000;
+const DEAD_RECKON_LAYERS = ["aviation", "military-air"];
+let lastReckonAt = Date.now();
+
+function deadReckonAircraft() {
+  const now = Date.now();
+  const dt = (now - lastReckonAt) / 1000;
+  lastReckonAt = now;
+  if (dt <= 0 || dt > 10) return; // skip idle/backgrounded gaps
+
+  let moved = false;
+  for (const layerId of DEAD_RECKON_LAYERS) {
+    if (!state.enabled.has(layerId)) continue;
+    const rows = state.data.get(layerId);
+    if (!rows || !rows.length) continue;
+    for (const row of rows) {
+      const speed = Number(row.velocity); // metres/second
+      const track = Number(row.track);    // degrees clockwise from north
+      if (!Number.isFinite(speed) || speed <= 0 || !Number.isFinite(track)) continue;
+      if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
+      const dist = speed * dt; // metres travelled this tick
+      const rad = (track * Math.PI) / 180;
+      const cosLat = Math.cos((row.lat * Math.PI) / 180) || 1e-6;
+      row.lat += (dist * Math.cos(rad)) / 111_320;
+      row.lon += (dist * Math.sin(rad)) / (111_320 * cosLat);
+      moved = true;
+    }
+  }
+  if (moved) renderMap();
 }
 
 function buildIconLayer(id, data) {
@@ -459,6 +595,24 @@ function buildIconLayer(id, data) {
         getSize: (d) => 18 + Math.min(10, (d.severity || 1) * 2),
         getAngle: (d) => Number.isFinite(d.track) ? -d.track : 0,
         getColor: () => [92, 200, 255, 240],
+        sizeUnits: "pixels",
+        billboard: false,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "military-air") {
+      return new deck.IconLayer({
+        id: "military-air-icons",
+        data,
+        pickable: true,
+        iconAtlas: aircraftIconAtlas,
+        iconMapping: aircraftIconMapping,
+        getIcon: () => "plane",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 20 + Math.min(12, (d.severity || 1) * 2),
+        getAngle: (d) => Number.isFinite(d.track) ? -d.track : 0,
+        getColor: (d) => d.severity >= 5 ? [253, 186, 116, 245] : [245, 158, 11, 240],
         sizeUnits: "pixels",
         billboard: false,
         onClick: ({ object }) => object && showDetail(object)
@@ -630,6 +784,108 @@ function buildIconLayer(id, data) {
       });
     }
 
+    if (id === "chokepoints") {
+      return new deck.IconLayer({
+        id: "chokepoint-icons",
+        data,
+        pickable: true,
+        iconAtlas: chokepointsIconAtlas,
+        iconMapping: chokepointsIconMapping,
+        getIcon: () => "chokepoint",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 20 + Math.min(12, (d.severity || 1) * 2),
+        getColor: () => [...(palette.get("chokepoints") || [255, 255, 255]), 240],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "cctv") {
+      return new deck.IconLayer({
+        id: "cctv-icons",
+        data,
+        pickable: true,
+        iconAtlas: cctvIconAtlas,
+        iconMapping: cctvIconMapping,
+        getIcon: () => "cctv",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: () => 22,
+        getColor: () => [...(palette.get("cctv") || [255, 255, 255]), 240],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "news") {
+      return new deck.IconLayer({
+        id: "news-icons",
+        data,
+        pickable: true,
+        iconAtlas: newsIconAtlas,
+        iconMapping: newsIconMapping,
+        getIcon: () => "news",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: () => 22,
+        getColor: () => [...(palette.get("news") || [255, 255, 255]), 240],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "conflict") {
+      return new deck.IconLayer({
+        id: "conflict-icons",
+        data,
+        pickable: true,
+        iconAtlas: conflictIconAtlas,
+        iconMapping: conflictIconMapping,
+        getIcon: () => "conflict",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 22 + Math.min(12, (d.severity || 1) * 2),
+        getColor: (d) => d.severity >= 5 ? [244, 63, 94, 245] : [251, 146, 120, 235],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "maritime") {
+      return new deck.IconLayer({
+        id: "maritime-icons",
+        data,
+        pickable: true,
+        iconAtlas: maritimeIconAtlas,
+        iconMapping: maritimeIconMapping,
+        getIcon: () => "maritime",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 20 + Math.min(12, (d.severity || 1) * 2),
+        getColor: () => [...(palette.get("maritime") || [255, 255, 255]), 240],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "military") {
+      return new deck.IconLayer({
+        id: "military-icons",
+        data,
+        pickable: true,
+        iconAtlas: militaryIconAtlas,
+        iconMapping: militaryIconMapping,
+        getIcon: () => "military",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 20 + Math.min(12, (d.severity || 1) * 2),
+        getColor: (d) => d.severity >= 5 ? [203, 213, 225, 245] : [148, 163, 184, 235],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
     return new deck.ScatterplotLayer({
       id: `scatter-${id}`,
       data,
@@ -647,49 +903,64 @@ function buildIconLayer(id, data) {
     });
 }
 
+// Collect the present detail fields as [label, value] pairs. Labels and values
+// are rendered distinctly (muted uppercase label beside a bright value) so the
+// card reads as structured data rather than a wall of identical sentences.
+function detailRows(item) {
+  const rows = [];
+  const add = (label, value) => {
+    if (value !== null && value !== undefined && value !== "") rows.push([label, String(value)]);
+  };
+  add("Magnitude", item.magnitude);
+  add("CVSS", item.cvss);
+  if (item.epss) add("EPSS", `${(Number(item.epss) * 100).toFixed(1)}%`);
+  if (item.kev) add("Exploited", "Known exploited vulnerability");
+  add("Due", item.dueDate);
+  add("Chain", item.chain);
+  add("Address", item.address);
+  if (item.groupCount) add("Entries", Number(item.groupCount).toLocaleString());
+  add("Group", item.groupLabel);
+  add("MMSI", item.mmsi);
+  if (Number.isFinite(item.speedKnots)) add("Speed", `${Number(item.speedKnots).toFixed(1)} kn`);
+  if (Number.isFinite(item.course)) add("Course", `${Number(item.course).toFixed(1)}°`);
+  if (Number.isFinite(item.altitudeKm)) add("Altitude", `${Number(item.altitudeKm).toFixed(1)} km`);
+  add("SDN", item.sdnName);
+  add("SDN type", item.sdnType);
+  add("Country", item.country);
+  add("Region", item.region);
+  add("WPI", item.portNumber);
+  add("Harbor size", item.harborSize);
+  add("Harbor type", item.harborType);
+  add("NAVAREA", item.navArea);
+  add("UN/LOCODE", item.unloCode);
+  add("Chart", item.chartNumber);
+  if (item.facilities?.length) add("Facilities", item.facilities.join(", "));
+  if (item.programs?.length) add("Programs", item.programs.slice(0, 6).join(", "));
+  if (item.topPrograms?.length) add("Top programs", item.topPrograms.map((row) => `${row.name} (${row.count})`).join(", "));
+  if (item.topCountries?.length) add("Top countries", item.topCountries.map((row) => `${row.name} (${row.count})`).join(", "));
+  if (item.sampleEntries?.length) add("Sample", item.sampleEntries.map((row) => row.name).join("; "));
+  add("OFAC UID", item.uid);
+  if (Number.isFinite(item.akaCount)) add("Aliases", item.akaCount);
+  if (Number.isFinite(item.idCount)) add("IDs", item.idCount);
+  if (item.altitude) add("Altitude", `${Math.round(item.altitude).toLocaleString()} m`);
+  add("Confidence", item.confidence);
+  add("Source", item.source);
+  return rows;
+}
+
 function showDetail(item) {
   const color = palette.get(item.layer) || [255, 255, 255];
+  const description = item.text || item.summary || item.status || "";
+  const rows = detailRows(item);
   els.detail.hidden = false;
   els.detail.innerHTML = `
     <button type="button" class="close-detail">×</button>
-    <span class="detail-kicker" style="color: rgb(${color.join(",")})">${item.type || item.layer}</span>
+    <span class="detail-kicker" style="color: rgb(${color.join(",")})">${escapeHtml(item.type || item.layer)}</span>
     <h3>${escapeHtml(item.name || item.id)}</h3>
-    <p>${escapeHtml(item.text || item.summary || item.status || item.source || "No additional detail available.")}</p>
-    ${item.magnitude ? `<p>Magnitude ${item.magnitude}</p>` : ""}
-    ${item.cvss ? `<p>CVSS ${item.cvss}</p>` : ""}
-    ${item.epss ? `<p>EPSS ${(Number(item.epss) * 100).toFixed(1)}%</p>` : ""}
-    ${item.kev ? `<p>Known exploited vulnerability</p>` : ""}
-    ${item.dueDate ? `<p>Due ${escapeHtml(item.dueDate)}</p>` : ""}
-    ${item.chain ? `<p>Chain ${escapeHtml(item.chain)}</p>` : ""}
-    ${item.address ? `<p>Address ${escapeHtml(item.address)}</p>` : ""}
-    ${item.groupCount ? `<p>Entries ${Number(item.groupCount).toLocaleString()}</p>` : ""}
-    ${item.groupLabel ? `<p>Group ${escapeHtml(item.groupLabel)}</p>` : ""}
-    ${item.mmsi ? `<p>MMSI ${escapeHtml(item.mmsi)}</p>` : ""}
-    ${Number.isFinite(item.speedKnots) ? `<p>Speed ${Number(item.speedKnots).toFixed(1)} kn</p>` : ""}
-    ${Number.isFinite(item.course) ? `<p>Course ${Number(item.course).toFixed(1)}</p>` : ""}
-    ${Number.isFinite(item.altitudeKm) ? `<p>Altitude ${Number(item.altitudeKm).toFixed(1)} km</p>` : ""}
-    ${item.sdnName ? `<p>SDN ${escapeHtml(item.sdnName)}</p>` : ""}
-    ${item.sdnType ? `<p>SDN type ${escapeHtml(item.sdnType)}</p>` : ""}
-    ${item.country ? `<p>Country ${escapeHtml(item.country)}</p>` : ""}
-    ${item.region ? `<p>Region ${escapeHtml(item.region)}</p>` : ""}
-    ${item.portNumber ? `<p>WPI ${escapeHtml(item.portNumber)}</p>` : ""}
-    ${item.harborSize ? `<p>Harbor size ${escapeHtml(item.harborSize)}</p>` : ""}
-    ${item.harborType ? `<p>Harbor type ${escapeHtml(item.harborType)}</p>` : ""}
-    ${item.navArea ? `<p>NAVAREA ${escapeHtml(item.navArea)}</p>` : ""}
-    ${item.unloCode ? `<p>UN/LOCODE ${escapeHtml(item.unloCode)}</p>` : ""}
-    ${item.chartNumber ? `<p>Chart ${escapeHtml(item.chartNumber)}</p>` : ""}
-    ${item.facilities?.length ? `<p>Facilities ${escapeHtml(item.facilities.join(", "))}</p>` : ""}
-    ${item.programs?.length ? `<p>Programs ${escapeHtml(item.programs.slice(0, 6).join(", "))}</p>` : ""}
-    ${item.topPrograms?.length ? `<p>Top programs ${escapeHtml(item.topPrograms.map((row) => `${row.name} (${row.count})`).join(", "))}</p>` : ""}
-    ${item.topCountries?.length ? `<p>Top countries ${escapeHtml(item.topCountries.map((row) => `${row.name} (${row.count})`).join(", "))}</p>` : ""}
-    ${item.sampleEntries?.length ? `<p>Sample ${escapeHtml(item.sampleEntries.map((row) => row.name).join("; "))}</p>` : ""}
-    ${item.uid ? `<p>OFAC UID ${escapeHtml(item.uid)}</p>` : ""}
-    ${Number.isFinite(item.akaCount) ? `<p>Aliases ${item.akaCount}</p>` : ""}
-    ${Number.isFinite(item.idCount) ? `<p>IDs ${item.idCount}</p>` : ""}
-    ${item.altitude ? `<p>Altitude ${Math.round(item.altitude).toLocaleString()} m</p>` : ""}
-    ${item.confidence ? `<p>Confidence ${escapeHtml(item.confidence)}</p>` : ""}
-    ${item.source ? `<p>Source ${escapeHtml(item.source)}</p>` : ""}
-    ${item.url ? `<a href="${item.url}" target="_blank" rel="noreferrer">Open source</a>` : ""}
+    ${description ? `<p class="detail-desc">${escapeHtml(description)}</p>` : ""}
+    ${rows.length ? `<dl class="detail-grid">${rows.map(([label, value]) =>
+      `<div class="detail-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
+    ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open source</a>` : ""}
   `;
   els.detail.querySelector(".close-detail").addEventListener("click", () => {
     els.detail.hidden = true;
@@ -718,21 +989,39 @@ async function refreshHealth() {
   }
 }
 
+const FEED_LIMIT = 14;
+const FEED_PER_LAYER = 4;
+
+// Highest-severity, then most-recent first.
+function byPriority(a, b) {
+  return (Number(b.severity) || 1) - (Number(a.severity) || 1)
+    || String(b.time || "").localeCompare(String(a.time || ""));
+}
+
 function renderFeeds() {
-  const conflicts = state.data.get("conflict") || [];
-  const telegram = state.data.get("telegram") || [];
-  const seismic = state.data.get("seismic") || [];
-  const rows = [...telegram.slice(0, 4), ...conflicts.slice(0, 5), ...seismic.slice(0, 4)];
-  els.feedList.innerHTML = rows.map((row) => `
-    <button class="feed-item" type="button" data-id="${row.id}" data-layer="${row.layer}">
-      <strong>${escapeHtml(row.name || row.place || row.channel)}</strong>
-      <span>${escapeHtml(row.type || row.status || "Live item")}</span>
+  // Aggregate the most notable currently-visible items across ALL enabled layers
+  // (respecting the severity filter), so the Live Desk reflects the active
+  // situational picture — not a fixed three layers, and never items from a layer
+  // that's toggled off. Cap each layer's contribution first so one noisy layer
+  // (e.g. an earthquake swarm) can't crowd out everything else.
+  const rows = [...state.enabled]
+    .flatMap((id) => visibleEntities(id)
+      .filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon))
+      .sort(byPriority)
+      .slice(0, FEED_PER_LAYER))
+    .sort(byPriority)
+    .slice(0, FEED_LIMIT);
+
+  els.feedList.innerHTML = rows.length ? rows.map((row) => `
+    <button class="feed-item" type="button" data-id="${escapeHtml(String(row.id))}" data-layer="${escapeHtml(String(row.layer))}">
+      <strong>${escapeHtml(row.name || row.place || row.channel || String(row.id))}</strong>
+      <span>${escapeHtml(`${layerLabels.get(row.layer) || row.layer} · ${row.type || row.status || "Live item"}`)}</span>
     </button>
-  `).join("");
+  `).join("") : `<div class="health-empty">Enable a layer to populate the live desk.</div>`;
 
   els.feedList.querySelectorAll(".feed-item").forEach((button) => {
     button.addEventListener("click", () => {
-      const item = state.data.get(button.dataset.layer)?.find((row) => row.id === button.dataset.id);
+      const item = state.data.get(button.dataset.layer)?.find((row) => String(row.id) === button.dataset.id);
       if (!item) return;
       state.map.flyTo({ center: [item.lon, item.lat], zoom: 5 });
       showDetail(item);
@@ -839,13 +1128,56 @@ async function runWalletLookup() {
   result.textContent = "Checking chain data and SDN exposure...";
   try {
     const payload = await fetchJson(`/api/crypto/${chain}?address=${encodeURIComponent(address)}`);
+    const explorer = chain === "eth"
+      ? { url: `https://etherscan.io/address/${encodeURIComponent(address)}`, label: "View on Etherscan" }
+      : { url: `https://blockstream.info/address/${encodeURIComponent(address)}`, label: "View on Blockstream" };
     result.innerHTML = `
       <div class="${payload.sanctioned ? "badge danger" : "badge ok"}">${payload.sanctioned ? "SANCTIONED - OFAC SDN" : "No OFAC crypto match"}</div>
+      ${extLink(explorer.url, explorer.label)}
       <pre>${escapeHtml(JSON.stringify(payload.data, null, 2).slice(0, 1800))}</pre>
     `;
   } catch (error) {
     result.textContent = error.message;
   }
+}
+
+// Attach expand/collapse toggles to every `.result-head` in a result container.
+// New buttons are created on each render, so listeners never accumulate.
+function wireAccordion(container) {
+  container.querySelectorAll(".result-head").forEach((head) => {
+    head.addEventListener("click", () => {
+      const detail = head.nextElementSibling;
+      detail.hidden = !detail.hidden;
+      head.setAttribute("aria-expanded", String(!detail.hidden));
+    });
+  });
+}
+
+function kvRow(label, value) {
+  const text = Array.isArray(value) ? value.filter(Boolean).join(", ") : value;
+  return text ? `<div class="kv"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(text))}</span></div>` : "";
+}
+
+function extLink(url, label) {
+  return `<a class="result-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)} ↗</a>`;
+}
+
+// Build the collapsible detail body for a sanctions search hit from its
+// OpenSanctions/OFAC properties (country, programs, aliases, UID, notes).
+function sanctionDetail(row) {
+  const props = row.properties || {};
+  const parts = [];
+  const add = (label, value) => {
+    const text = Array.isArray(value) ? value.filter(Boolean).join(", ") : value;
+    if (text) parts.push(`<div class="kv"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(text))}</span></div>`);
+  };
+  add("Country", props.country);
+  add("Programs", props.program);
+  add("Aliases", props.alias);
+  add("OFAC UID", props.uid);
+  add("Notes", props.notes);
+  add("Source", row.datasets);
+  return parts.join("") || `<div class="kv"><span>Detail</span><span>No further detail available.</span></div>`;
 }
 
 async function runSanctionsSearch() {
@@ -857,12 +1189,20 @@ async function runSanctionsSearch() {
   try {
     const payload = await fetchJson(`/api/sanctions?q=${encodeURIComponent(q)}`);
     const results = payload.results || [];
-    result.innerHTML = results.length ? results.map((row) => `
+    if (!results.length) {
+      result.textContent = "No matches.";
+      return;
+    }
+    result.innerHTML = results.map((row) => `
       <article class="result-item">
-        <strong>${escapeHtml(row.caption || row.id)}</strong>
-        <span>${escapeHtml((row.schema || "Entity") + " · " + (row.datasets?.[0] || "OpenSanctions"))}</span>
+        <button class="result-head" type="button" aria-expanded="false">
+          <strong>${escapeHtml(row.caption || row.id)}</strong>
+          <span>${escapeHtml((row.schema || "Entity") + " · " + (row.datasets?.[0] || "OpenSanctions"))}</span>
+        </button>
+        <div class="result-detail" hidden>${sanctionDetail(row)}</div>
       </article>
-    `).join("") : "No matches.";
+    `).join("");
+    wireAccordion(result);
   } catch (error) {
     result.textContent = error.message;
   }
@@ -885,10 +1225,21 @@ async function runIntelLookup() {
     const payload = await fetchJson(route);
     result.innerHTML = kind === "whois"
       ? renderWhois(payload)
-      : `<pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 2400))}</pre>`;
+      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 2400))}</pre>`;
   } catch (error) {
     result.textContent = error.message;
   }
+}
+
+// External reputation portals to pivot an IOC into, keyed by indicator kind.
+function intelLinks(kind, q) {
+  const e = encodeURIComponent(q);
+  const links = {
+    ip: [[`https://www.virustotal.com/gui/ip-address/${e}`, "VirusTotal"], [`https://www.abuseipdb.com/check/${e}`, "AbuseIPDB"], [`https://viz.greynoise.io/ip/${e}`, "GreyNoise"]],
+    domain: [[`https://www.virustotal.com/gui/domain/${e}`, "VirusTotal"], [`https://otx.alienvault.com/indicator/domain/${e}`, "AlienVault OTX"]],
+    url: [[`https://www.virustotal.com/gui/search/${e}`, "VirusTotal"]]
+  }[kind] || [];
+  return links.map(([url, label]) => extLink(url, label)).join("");
 }
 
 function renderWhois(payload) {
@@ -907,6 +1258,26 @@ function renderWhois(payload) {
   return `${badge}${rows}${checked}<pre>${escapeHtml(JSON.stringify(payload.rdap, null, 2).slice(0, 1200))}</pre>`;
 }
 
+// Collapsible detail for one NVD CVE: CVSS score, publish date, full description,
+// a link to the NVD record, and the first few reference links.
+function cveDetail(row) {
+  const cve = row.cve || {};
+  const desc = (cve.descriptions || []).find((d) => d.lang === "en")?.value
+    || cve.descriptions?.[0]?.value || "No description available.";
+  const metric = cve.metrics?.cvssMetricV31?.[0] || cve.metrics?.cvssMetricV30?.[0] || cve.metrics?.cvssMetricV2?.[0];
+  const cvss = metric?.cvssData
+    ? `${metric.cvssData.baseScore} (${metric.cvssData.baseSeverity || metric.baseSeverity || "?"})`
+    : null;
+  const refs = (cve.references || []).slice(0, 4).map((ref) => extLink(ref.url, ref.url.replace(/^https?:\/\//, "").slice(0, 48)));
+  return `
+    ${kvRow("CVSS", cvss)}
+    ${kvRow("Published", cve.published ? cve.published.slice(0, 10) : "")}
+    <p class="result-desc">${escapeHtml(desc)}</p>
+    ${extLink(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id)}`, "Open on NVD")}
+    ${refs.length ? `<div class="result-refs">${refs.join("")}</div>` : ""}
+  `;
+}
+
 async function runCveSearch() {
   const q = document.querySelector("#cve-query").value.trim() || "kev";
   const result = document.querySelector("#cve-result");
@@ -914,12 +1285,21 @@ async function runCveSearch() {
   result.textContent = "Searching NVD...";
   try {
     const payload = await fetchJson(`/api/cves?q=${encodeURIComponent(q)}`);
-    result.innerHTML = (payload.vulnerabilities || []).slice(0, 8).map((row) => `
+    const rows = (payload.vulnerabilities || []).slice(0, 8);
+    if (!rows.length) {
+      result.textContent = "No CVEs found.";
+      return;
+    }
+    result.innerHTML = rows.map((row) => `
       <article class="result-item">
-        <strong>${escapeHtml(row.cve.id)}</strong>
-        <span>${escapeHtml(row.cve.descriptions?.[0]?.value || "No description").slice(0, 220)}</span>
+        <button class="result-head" type="button" aria-expanded="false">
+          <strong>${escapeHtml(row.cve.id)}</strong>
+          <span>${escapeHtml(row.cve.descriptions?.[0]?.value || "No description").slice(0, 160)}</span>
+        </button>
+        <div class="result-detail" hidden>${cveDetail(row)}</div>
       </article>
-    `).join("") || "No CVEs found.";
+    `).join("");
+    wireAccordion(result);
   } catch (error) {
     result.textContent = error.message;
   }
@@ -948,6 +1328,13 @@ function wireReconTools() {
 
   document.querySelector("#export-snapshot").addEventListener("click", exportSnapshot);
 
+  document.querySelector("#clear-layers").addEventListener("click", () => {
+    state.enabled.clear();
+    store.enabled = [];
+    persist();
+    renderAll();
+  });
+
   document.querySelector("#place-search").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     runPlaceSearch();
@@ -956,16 +1343,53 @@ function wireReconTools() {
   renderReconHistory();
 }
 
-function runPlaceSearch() {
-  const q = document.querySelector("#place-search").value.trim();
+function flashNoMatch(input) {
+  const box = input.closest(".search-box");
+  box.classList.remove("no-match");
+  void box.offsetWidth; // reflow so the animation restarts on repeat misses
+  box.classList.add("no-match");
+  box.addEventListener("animationend", () => box.classList.remove("no-match"), { once: true });
+}
+
+async function runPlaceSearch() {
+  const input = document.querySelector("#place-search");
+  const q = input.value.trim();
   if (!q) return;
   recordRecon("place", q, { "#place-search": q });
   const needle = q.toLowerCase();
-  const item = [...state.data.values()].flat().find((row) => row.name?.toLowerCase().includes(needle) || row.place?.toLowerCase().includes(needle));
+
+  // 1. Prefer a live entity match (also opens its detail card).
+  const item = [...state.data.values()].flat().find((row) =>
+    row.name?.toLowerCase().includes(needle) || row.place?.toLowerCase().includes(needle));
   if (item) {
     state.map.flyTo({ center: [item.lon, item.lat], zoom: 5 });
     showDetail(item);
+    return;
   }
+
+  // 2. Fall back to the gazetteer so any known city/port recentres the map.
+  const place = gazetteerPlaces.find((row) =>
+    row.name?.toLowerCase().includes(needle) ||
+    (row.aliases || []).some((alias) => String(alias).toLowerCase().includes(needle)));
+  if (place) {
+    state.map.flyTo({ center: [place.lon, place.lat], zoom: 5 });
+    return;
+  }
+
+  // 3. Geocode arbitrary addresses/places via the server (Nominatim proxy).
+  try {
+    const geo = await fetchJson(`/api/geocode?q=${encodeURIComponent(q)}`);
+    if (geo.found && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)) {
+      state.map.flyTo({ center: [geo.lon, geo.lat], zoom: 14 });
+      showDetail({ type: "Location", name: geo.name, lat: geo.lat, lon: geo.lon, source: geo.source });
+      return;
+    }
+  } catch {
+    // fall through to the no-match flash
+  }
+
+  // Nothing matched anywhere — flash the search box so the miss is visible.
+  flashNoMatch(input);
 }
 
 function tickClock() {
@@ -1051,6 +1475,37 @@ async function exportSnapshot() {
   downloadJson(snapshot, `osiris-snapshot-${stamp}.json`);
 }
 
+// Collapse/restore the left (layers) and right (recon) panes. State persists so a
+// preferred single-pane layout survives reloads. The map is resized after each
+// toggle because its container width changes.
+function applyPaneState() {
+  const shell = document.querySelector(".app-shell");
+  shell.classList.toggle("hide-left", Boolean(store.hideLeft));
+  shell.classList.toggle("hide-right", Boolean(store.hideRight));
+  const left = document.querySelector("#toggle-left");
+  const right = document.querySelector("#toggle-right");
+  // Chevron points the direction the pane will move: collapse ‹ / expand ›.
+  left.textContent = store.hideLeft ? "›" : "‹";
+  right.textContent = store.hideRight ? "‹" : "›";
+  left.setAttribute("aria-pressed", String(Boolean(store.hideLeft)));
+  right.setAttribute("aria-pressed", String(Boolean(store.hideRight)));
+  if (state.map) requestAnimationFrame(() => state.map.resize());
+}
+
+function wirePanes() {
+  document.querySelector("#toggle-left").addEventListener("click", () => {
+    store.hideLeft = !store.hideLeft;
+    persist();
+    applyPaneState();
+  });
+  document.querySelector("#toggle-right").addEventListener("click", () => {
+    store.hideRight = !store.hideRight;
+    persist();
+    applyPaneState();
+  });
+  applyPaneState();
+}
+
 function wireSeverityFilter() {
   const slider = document.querySelector("#min-severity");
   const label = document.querySelector("#severity-value");
@@ -1070,9 +1525,12 @@ renderLayerControls();
 wireLayerControls();
 wireReconTools();
 wireSeverityFilter();
+wirePanes();
 tickClock();
 setInterval(tickClock, 1000);
 setInterval(pollDueLayers, POLL_TICK_MS);
+setInterval(deadReckonAircraft, DEAD_RECKON_MS);
+loadGazetteer();
 loadStaticLayers()
   .then((data) => { staticLayers = data; })
   .finally(hydrateInitialLayers);

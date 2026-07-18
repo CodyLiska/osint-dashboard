@@ -31,3 +31,29 @@ export async function fetchText(url, options = {}) {
   if (!response.ok) throw httpError(response);
   return response.text();
 }
+
+// Retry a fetch fn on transient failures (5xx / network / timeout), not on 4xx
+// (client errors won't recover — and this keeps us from hammering a 429).
+export async function withRetry(fn, retries = 1) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0 && (!error.status || error.status >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return withRetry(fn, retries - 1);
+    }
+    throw error;
+  }
+}
+
+// Resilient fetch wrappers: a per-attempt timeout (so a stalled origin fails fast
+// instead of hanging) plus one retry on transient failures. Pair with
+// cachedResilient() so a flaky single-resource upstream degrades to stale/cached
+// data rather than surfacing an error.
+export function fetchJsonRetry(url, options = {}, { retries = 1, timeoutMs = 10_000 } = {}) {
+  return withRetry(() => fetchJson(url, { signal: AbortSignal.timeout(timeoutMs), ...options }), retries);
+}
+
+export function fetchTextRetry(url, options = {}, { retries = 1, timeoutMs = 20_000 } = {}) {
+  return withRetry(() => fetchText(url, { signal: AbortSignal.timeout(timeoutMs), ...options }), retries);
+}

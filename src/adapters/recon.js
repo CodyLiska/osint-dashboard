@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson, fetchText } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJson, fetchJsonRetry, fetchTextRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 function decodeXml(value = "") {
@@ -50,8 +50,8 @@ function parseOfacCryptoAddresses(xml) {
 }
 
 async function ofacSdnXml() {
-  const result = await cached("ofac:sdn-xml", 24 * 60 * 60_000, () =>
-    fetchText("https://www.treasury.gov/ofac/downloads/sdn.xml", {
+  const result = await cachedResilient("ofac:sdn-xml", 24 * 60 * 60_000, () =>
+    fetchTextRetry("https://www.treasury.gov/ofac/downloads/sdn.xml", {
       headers: { accept: "application/xml,text/xml,text/plain" }
     })
   );
@@ -86,8 +86,8 @@ const officialSanctionsSources = [
 ];
 
 async function sourceXml(source) {
-  const result = await cached(`sanctions:${source.id}:xml`, 24 * 60 * 60_000, () =>
-    fetchText(source.url, {
+  const result = await cachedResilient(`sanctions:${source.id}:xml`, 24 * 60 * 60_000, () =>
+    fetchTextRetry(source.url, {
       headers: { accept: "application/xml,text/xml,text/plain" }
     })
   );
@@ -95,7 +95,7 @@ async function sourceXml(source) {
 }
 
 export async function sanctionedCrypto() {
-  const result = await cached("ofac-crypto:sdn-xml", 24 * 60 * 60_000, async () => {
+  const result = await cachedResilient("ofac-crypto:sdn-xml", 24 * 60 * 60_000, async () => {
     const xml = await ofacSdnXml();
     return parseOfacCryptoAddresses(xml);
   });
@@ -358,7 +358,7 @@ function parseUkOfsiEntities(xml) {
 }
 
 async function officialSanctionsRows() {
-  const result = await cached("sanctions:official-entities", 24 * 60 * 60_000, async () => {
+  const result = await cachedResilient("sanctions:official-entities", 24 * 60 * 60_000, async () => {
     const groups = await Promise.all(officialSanctionsSources.map(async (source) => {
       const xml = source.id === "ofac-sdn" ? await ofacSdnXml() : await sourceXml(source);
       return source.parser(xml);
@@ -596,8 +596,8 @@ export async function cveSearch(keyword = "kev") {
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60_000);
   const fmt = (date) => date.toISOString().replace(/\.\d{3}Z$/, ".000");
-  const result = await cached(`cves:${keyword}`, 30 * 60_000, () =>
-    fetchJson(`https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&pubStartDate=${fmt(start)}&pubEndDate=${fmt(end)}`, {
+  const result = await cachedResilient(`cves:${keyword}`, 30 * 60_000, () =>
+    fetchJsonRetry(`https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&pubStartDate=${fmt(start)}&pubEndDate=${fmt(end)}`, {
       headers: process.env.NVD_API_KEY ? { apiKey: process.env.NVD_API_KEY } : {}
     })
   );

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installJsonFetch } from "./helpers/mock-fetch.js";
-import { aviationLayer } from "../src/adapters/opensky.js";
+import { aviationLayer, militaryAircraftLayer, isMilitaryHex } from "../src/adapters/opensky.js";
 
 // OpenSky state vectors are positional arrays. Build one with the indices the
 // adapter reads: 0 icao, 1 callsign, 2 country, 5 lon, 6 lat, 9 velocity,
@@ -69,6 +69,30 @@ test("aviationLayer caps the result at 1200 aircraft", async () => {
   try {
     const { entities } = await aviationLayer(bounds);
     assert.equal(entities.length, 1200);
+  } finally {
+    restore();
+  }
+});
+
+test("isMilitaryHex flags military ICAO24 ranges and clears civilian ones", () => {
+  assert.equal(isMilitaryHex("adf7c9"), true);  // in US military range adf7c8-afffff
+  assert.equal(isMilitaryHex("43c123"), true);  // in UK military range 43c000-43cfff
+  assert.equal(isMilitaryHex("3c6444"), false); // German civil (Lufthansa-style)
+  assert.equal(isMilitaryHex("a12345"), false); // US civil
+  assert.equal(isMilitaryHex(""), false);
+});
+
+test("militaryAircraftLayer keeps only military-hex aircraft and tags them", async () => {
+  const restore = installJsonFetch(states([
+    row({ id: "adf801", call: "RCH123", lon: 5, lat: 10 }),  // military hex
+    row({ id: "3c6444", call: "DLH456", lon: 6, lat: 11 }),  // civilian hex
+    row({ id: "43c9ff", call: "ASCOT1", lon: 7, lat: 12 })   // UK military hex
+  ]));
+  try {
+    const { entities, meta } = await militaryAircraftLayer(bounds);
+    assert.deepEqual(entities.map((e) => e.id).sort(), ["mil-43c9ff", "mil-adf801"]);
+    assert.ok(entities.every((e) => e.layer === "military-air" && e.type === "Military aircraft"));
+    assert.equal(meta.matched, 2);
   } finally {
     restore();
   }

@@ -1,7 +1,9 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
+// The NGA World Port Index endpoint intermittently 503s or stalls; fetchJsonRetry
+// adds a timeout + retry, and cachedResilient serves the last-good data on failure.
 const wpiUrl = "https://msi.nga.mil/api/publications/world-port-index?output=json";
 
 function sizeRank(size) {
@@ -107,7 +109,7 @@ function portEntity(port) {
 }
 
 export async function portsLayer(bounds = {}) {
-  const result = await cached("nga:wpi", 24 * 60 * 60_000, () => fetchJson(wpiUrl));
+  const result = await cachedResilient("nga:wpi", 24 * 60 * 60_000, () => fetchJsonRetry(wpiUrl));
   const allPorts = result.value.ports || [];
   const normalizedBounds = normalizeBounds(bounds);
   const max = Number(process.env.PORTS_MAX_ITEMS || 1200);
@@ -134,7 +136,8 @@ export async function portsLayer(bounds = {}) {
       cappedAt: max,
       sizeCounts,
       viewportAware: Boolean(normalizedBounds),
-      cached: result.cached
+      cached: result.cached,
+      stale: Boolean(result.stale)
     }
   };
 }

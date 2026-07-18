@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry, withRetry } from "../lib/http.js";
 import { sanctionsSearch } from "./recon.js";
 
 function requireKey(name) {
@@ -19,8 +19,8 @@ export async function abuseIpLookup(ip) {
     maxAgeInDays: String(process.env.ABUSEIPDB_MAX_AGE_DAYS || 90),
     verbose: "true"
   });
-  const result = await cached(`abuseipdb:${ip}`, 30 * 60_000, () =>
-    fetchJson(`https://api.abuseipdb.com/api/v2/check?${params}`, {
+  const result = await cachedResilient(`abuseipdb:${ip}`, 30 * 60_000, () =>
+    fetchJsonRetry(`https://api.abuseipdb.com/api/v2/check?${params}`, {
       headers: {
         key,
         accept: "application/json"
@@ -35,16 +35,24 @@ export async function abuseIpLookup(ip) {
   };
 }
 
+// One GreyNoise community lookup. 404 ("IP not observed") is a valid result, not
+// an error; any other non-2xx throws with its status so withRetry can decide
+// whether to retry (5xx / network / timeout) or give up (4xx).
+async function greyNoiseOnce(ip, key) {
+  const response = await fetch(`https://api.greynoise.io/v3/community/${encodeURIComponent(ip)}`, {
+    headers: key ? { key } : {},
+    signal: AbortSignal.timeout(10_000)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.ok || response.status === 404) return body;
+  const error = new Error(`${response.status} ${response.statusText}`);
+  error.status = response.status;
+  throw error;
+}
+
 export async function greyNoiseLookup(ip) {
   const key = process.env.GREYNOISE_API_KEY;
-  const result = await cached(`greynoise:${ip}`, 30 * 60_000, async () => {
-    const response = await fetch(`https://api.greynoise.io/v3/community/${encodeURIComponent(ip)}`, {
-      headers: key ? { key } : {}
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok && response.status !== 404) throw new Error(`${response.status} ${response.statusText}`);
-    return body;
-  });
+  const result = await cachedResilient(`greynoise:${ip}`, 30 * 60_000, () => withRetry(() => greyNoiseOnce(ip, key)));
   return {
     source: "GreyNoise Community",
     ip,
@@ -62,8 +70,8 @@ function vtUrlId(url) {
 }
 
 export async function virusTotalIpLookup(ip) {
-  const result = await cached(`virustotal:ip:${ip}`, 30 * 60_000, () =>
-    fetchJson(`https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(ip)}`, {
+  const result = await cachedResilient(`virustotal:ip:${ip}`, 30 * 60_000, () =>
+    fetchJsonRetry(`https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(ip)}`, {
       headers: vtHeaders()
     })
   );
@@ -77,8 +85,8 @@ export async function virusTotalIpLookup(ip) {
 }
 
 export async function virusTotalDomainLookup(domain) {
-  const result = await cached(`virustotal:domain:${domain}`, 30 * 60_000, () =>
-    fetchJson(`https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`, {
+  const result = await cachedResilient(`virustotal:domain:${domain}`, 30 * 60_000, () =>
+    fetchJsonRetry(`https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`, {
       headers: vtHeaders()
     })
   );
@@ -93,8 +101,8 @@ export async function virusTotalDomainLookup(domain) {
 
 export async function virusTotalUrlLookup(url) {
   const id = vtUrlId(url);
-  const result = await cached(`virustotal:url:${id}`, 30 * 60_000, () =>
-    fetchJson(`https://www.virustotal.com/api/v3/urls/${id}`, {
+  const result = await cachedResilient(`virustotal:url:${id}`, 30 * 60_000, () =>
+    fetchJsonRetry(`https://www.virustotal.com/api/v3/urls/${id}`, {
       headers: vtHeaders()
     })
   );
@@ -224,8 +232,8 @@ export async function whoisLookup(query) {
   const target = isIp ? raw : raw.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
   const rdapUrl = `https://rdap.org/${type}/${encodeURIComponent(target)}`;
 
-  const result = await cached(`rdap:${type}:${target}`, 6 * 60 * 60_000, () =>
-    fetchJson(rdapUrl, { headers: { accept: "application/rdap+json, application/json" } })
+  const result = await cachedResilient(`rdap:${type}:${target}`, 6 * 60 * 60_000, () =>
+    fetchJsonRetry(rdapUrl, { headers: { accept: "application/rdap+json, application/json" } })
   );
   const rdap = result.value;
 

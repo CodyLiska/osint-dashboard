@@ -13,6 +13,7 @@ import {
   whoisLookup
 } from "./src/adapters/intel.js";
 import { btcLookup, cveSearch, ethLookup, sanctionsSearch } from "./src/adapters/recon.js";
+import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,7 @@ function boundsFromSearchParams(params) {
 function sourceNameForLayer(layer) {
   return {
     aviation: "OpenSky Network",
+    "military-air": "OpenSky (military)",
     fires: "NASA FIRMS",
     ports: "NGA World Port Index",
     weather: "NASA EONET",
@@ -161,6 +163,13 @@ async function handleApi(req, res, url) {
       const address = url.searchParams.get("address");
       if (!address) return sendJson(res, 400, { error: "address required" });
       const data = await withHealth("crypto-eth", "Blockscout ETH", () => ethLookup(address));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/geocode") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("geocode", "Nominatim", () => geocode(q));
       return sendJson(res, 200, data);
     }
 

@@ -8,6 +8,7 @@
   --muted: #93aaa2;
   --accent: #2dd4bf;
   --danger: #fb7185;
+  --warn: #fbbf24;
 }
 
 * {
@@ -34,6 +35,31 @@ select {
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr minmax(320px, 390px);
   height: 100vh;
+}
+
+/* Collapsible side panes (desktop only; the mobile layout stacks vertically). */
+@media (min-width: 1081px) {
+  .app-shell.hide-left { grid-template-columns: 1fr minmax(320px, 390px); }
+  .app-shell.hide-left .sidebar { display: none; }
+  .app-shell.hide-right { grid-template-columns: minmax(280px, 340px) 1fr; }
+  .app-shell.hide-right .recon { display: none; }
+  .app-shell.hide-left.hide-right { grid-template-columns: 1fr; }
+}
+
+.pane-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5, 11, 11, 0.76);
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
 }
 
 .sidebar,
@@ -192,6 +218,16 @@ h1 {
   cursor: not-allowed;
 }
 
+.layer-row.flagged strong {
+  color: var(--warn);
+}
+
+.flag-mark {
+  margin-left: 4px;
+  color: var(--warn);
+  font-size: 11px;
+}
+
 .swatch {
   width: 10px;
   height: 10px;
@@ -265,6 +301,17 @@ h1 {
   backdrop-filter: blur(10px);
 }
 
+.search-box.no-match {
+  border-color: var(--danger);
+  animation: search-shake 0.4s ease;
+}
+
+@keyframes search-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
 .search-box input,
 .field-row input,
 .field-row select {
@@ -293,6 +340,8 @@ h1 {
   bottom: 18px;
   z-index: 4;
   width: min(390px, calc(100% - 36px));
+  max-height: calc(100vh - 120px);
+  overflow: auto;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -337,14 +386,54 @@ h1 {
   color: var(--accent);
 }
 
+/* Lead description sits above the key/value grid. */
+.detail-desc {
+  margin-top: 9px;
+  color: #c5d8d2;
+  line-height: 1.45;
+}
+
+/* Differentiated field rows: a muted uppercase label beside a bright value. */
+.detail-grid {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 33%) 1fr;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.detail-row dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-row dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  word-break: break-word;
+}
+
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
 }
 
 .tab {
   min-height: 34px;
+  padding-inline: 4px;
+  font-size: 12px;
+  white-space: nowrap;
   color: var(--muted);
 }
 
@@ -447,6 +536,86 @@ pre {
 .result-item span {
   margin-top: 4px;
   color: var(--muted);
+}
+
+.result-head {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.result-head strong::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+
+.result-head[aria-expanded="true"] strong::before {
+  content: "▾ ";
+}
+
+.result-detail {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The explicit display above would otherwise defeat the `hidden` attribute. */
+.result-detail[hidden] {
+  display: none;
+}
+
+.result-detail .kv {
+  display: grid;
+  grid-template-columns: minmax(64px, 30%) 1fr;
+  gap: 8px;
+}
+
+.result-detail .kv span:first-child {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.result-detail .kv span:last-child {
+  color: var(--text);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.result-desc {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.result-link {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.result-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.result-refs .result-link {
+  margin-top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .feed-list {
@@ -619,6 +788,11 @@ pre {
   .sidebar,
   .recon {
     border: 0;
+  }
+
+  /* Side panes stack vertically on mobile; the collapse toggles don't apply. */
+  .pane-toggle {
+    display: none;
   }
 
   .layer-list {

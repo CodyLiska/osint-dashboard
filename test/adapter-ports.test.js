@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installJsonFetch } from "./helpers/mock-fetch.js";
+import { clearCache } from "../src/lib/cache.js";
 import { portsLayer } from "../src/adapters/ports.js";
 
 const port = (num, name, size, lat, lon, flags = {}) => ({
@@ -50,6 +51,26 @@ test("portsLayer filters to the viewport when bounds are supplied", async () => 
     assert.equal(meta.matchedPorts, 1);
   } finally {
     restore();
+  }
+});
+
+test("portsLayer retries a transient 503 and then succeeds", async () => {
+  clearCache();
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response("busy", { status: 503, statusText: "Service Unavailable" });
+    return new Response(JSON.stringify(dataset()), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const { entities, meta } = await portsLayer();
+    assert.equal(calls, 2); // failed once, retried, succeeded
+    assert.ok(entities.length > 0);
+    assert.equal(meta.stale, false);
+  } finally {
+    globalThis.fetch = original;
+    clearCache();
   }
 });
 

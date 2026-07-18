@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchText } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchTextRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 import { geoparse } from "../lib/gazetteer.js";
 
@@ -53,7 +53,7 @@ function stripHtml(input) {
 }
 
 async function channelPosts(channel) {
-  const html = await fetchText(`https://t.me/s/${encodeURIComponent(channel)}`);
+  const html = await fetchTextRetry(`https://t.me/s/${encodeURIComponent(channel)}`);
   const blocks = html.match(/<div class="tgme_widget_message\b[\s\S]*?<\/time>[\s\S]*?<\/div>\s*<\/div>/g) || [];
   const inspected = blocks.slice(-10);
   const entities = inspected.flatMap((block, index) => {
@@ -97,7 +97,7 @@ export async function telegramLayer() {
     .filter(Boolean)
     .slice(0, Number(process.env.OSIRIS_TELEGRAM_MAX_CHANNELS || 50));
 
-  const result = await cached(`telegram:${channels.join(",")}`, 10 * 60_000, async () => {
+  const result = await cachedResilient(`telegram:${channels.join(",")}`, 10 * 60_000, async () => {
     const settled = await Promise.allSettled(channels.map(channelPosts));
     return settled.map((entry, index) => entry.status === "fulfilled"
       ? entry.value
@@ -124,6 +124,7 @@ export async function telegramLayer() {
     entities,
     meta: {
       cached: result.cached,
+      stale: Boolean(result.stale),
       source: "Telegram public preview",
       channels,
       groups: Object.keys(channelGroups),

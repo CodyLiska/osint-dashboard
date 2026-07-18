@@ -1,4 +1,4 @@
-import { aviationLayer } from "./opensky.js";
+import { aviationLayer, militaryAircraftLayer } from "./opensky.js";
 import { firesLayer } from "./firms.js";
 import { eonetLayer } from "./eonet.js";
 import { seismicLayer } from "./usgs.js";
@@ -12,6 +12,7 @@ import { portsLayer } from "./ports.js";
 
 export async function layerEntities(layer, bounds = {}) {
   if (layer === "aviation") return aviationLayer(bounds);
+  if (layer === "military-air") return militaryAircraftLayer(bounds);
   if (layer === "fires") return firesLayer(bounds);
   if (layer === "weather") return eonetLayer("weather", ["severeStorms", "floods", "volcanoes"], bounds);
   if (layer === "ports") return portsLayer(bounds);

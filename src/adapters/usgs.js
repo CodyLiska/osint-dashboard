@@ -1,10 +1,10 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 export async function seismicLayer() {
-  const result = await cached("usgs:2.5_day", 60_000, () =>
-    fetchJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson")
+  const result = await cachedResilient("usgs:2.5_day", 60_000, () =>
+    fetchJsonRetry("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson")
   );
 
   const entities = (result.value.features || []).map((feature) => entity({
@@ -27,6 +27,7 @@ export async function seismicLayer() {
     entities,
     meta: {
       cached: result.cached,
+      stale: Boolean(result.stale),
       source: "USGS Earthquake Hazards Program"
     }
   };

@@ -1,0 +1,32 @@
+{
+  "dataset": "military",
+  "version": 1,
+  "updated": "2026-07-18",
+  "source": "Curated: publicly documented major military installations (Wikipedia / OpenStreetMap level, unclassified)",
+  "license": "Public reference",
+  "count": 22,
+  "records": [
+    { "id": "mil-pentagon", "type": "Military HQ", "name": "The Pentagon", "lat": 38.8719, "lon": -77.0563, "country": "United States", "summary": "US Department of Defense headquarters", "severity": 5 },
+    { "id": "mil-norfolk", "type": "Naval base", "name": "Naval Station Norfolk", "lat": 36.9459, "lon": -76.329, "country": "United States", "summary": "US Navy · largest naval base in the world", "severity": 5 },
+    { "id": "mil-pearl-harbor", "type": "Joint base", "name": "Joint Base Pearl Harbor-Hickam", "lat": 21.3649, "lon": -157.95, "country": "United States", "summary": "US Navy / Air Force · Pacific Fleet", "severity": 4 },
+    { "id": "mil-guantanamo", "type": "Naval base", "name": "Naval Station Guantanamo Bay", "lat": 19.9061, "lon": -75.0967, "country": "Cuba (US lease)", "summary": "US Navy", "severity": 3 },
+    { "id": "mil-ramstein", "type": "Air base", "name": "Ramstein Air Base", "lat": 49.4369, "lon": 7.6003, "country": "Germany", "summary": "US Air Force · USAFE / NATO air hub", "severity": 5 },
+    { "id": "mil-lakenheath", "type": "Air base", "name": "RAF Lakenheath", "lat": 52.4093, "lon": 0.561, "country": "United Kingdom", "summary": "US Air Force · 48th Fighter Wing", "severity": 4 },
+    { "id": "mil-incirlik", "type": "Air base", "name": "Incirlik Air Base", "lat": 37.0017, "lon": 35.4259, "country": "Turkey", "summary": "US / Turkish Air Force · NATO", "severity": 4 },
+    { "id": "mil-aviano", "type": "Air base", "name": "Aviano Air Base", "lat": 46.0319, "lon": 12.5965, "country": "Italy", "summary": "US Air Force · 31st Fighter Wing", "severity": 3 },
+    { "id": "mil-nsa-bahrain", "type": "Naval base", "name": "NSA Bahrain", "lat": 26.2094, "lon": 50.61, "country": "Bahrain", "summary": "US Navy · 5th Fleet headquarters", "severity": 5 },
+    { "id": "mil-al-udeid", "type": "Air base", "name": "Al Udeid Air Base", "lat": 25.1173, "lon": 51.315, "country": "Qatar", "summary": "US / Qatari Air Force · CENTCOM forward HQ", "severity": 5 },
+    { "id": "mil-camp-lemonnier", "type": "Expeditionary base", "name": "Camp Lemonnier", "lat": 11.547, "lon": 43.159, "country": "Djibouti", "summary": "US Navy · AFRICOM · Horn of Africa", "severity": 4 },
+    { "id": "mil-diego-garcia", "type": "Naval / air base", "name": "Diego Garcia", "lat": -7.3195, "lon": 72.4229, "country": "British Indian Ocean Territory", "summary": "US / UK · Indian Ocean strategic base", "severity": 5 },
+    { "id": "mil-camp-humphreys", "type": "Army garrison", "name": "Camp Humphreys", "lat": 36.966, "lon": 127.03, "country": "South Korea", "summary": "US Army · largest overseas US base", "severity": 5 },
+    { "id": "mil-kadena", "type": "Air base", "name": "Kadena Air Base", "lat": 26.3516, "lon": 127.769, "country": "Japan (Okinawa)", "summary": "US Air Force · 18th Wing", "severity": 4 },
+    { "id": "mil-yokosuka", "type": "Naval base", "name": "Fleet Activities Yokosuka", "lat": 35.2931, "lon": 139.662, "country": "Japan", "summary": "US Navy · 7th Fleet headquarters", "severity": 5 },
+    { "id": "mil-andersen", "type": "Air base", "name": "Andersen Air Force Base", "lat": 13.584, "lon": 144.924, "country": "Guam", "summary": "US Air Force · Pacific bomber rotations", "severity": 4 },
+    { "id": "mil-pituffik", "type": "Space base", "name": "Pituffik Space Base (Thule)", "lat": 76.5312, "lon": -68.7032, "country": "Greenland", "summary": "US Space Force · northernmost US base / BMEWS", "severity": 4 },
+    { "id": "mil-severomorsk", "type": "Naval base", "name": "Severomorsk", "lat": 69.07, "lon": 33.42, "country": "Russia", "summary": "Russian Navy · Northern Fleet headquarters", "severity": 5 },
+    { "id": "mil-sevastopol", "type": "Naval base", "name": "Sevastopol Naval Base", "lat": 44.6167, "lon": 33.525, "country": "Crimea (disputed)", "summary": "Russian Navy · Black Sea Fleet", "severity": 5 },
+    { "id": "mil-kaliningrad", "type": "Naval base", "name": "Baltiysk (Kaliningrad)", "lat": 54.6511, "lon": 19.9, "country": "Russia", "summary": "Russian Navy · Baltic Fleet", "severity": 4 },
+    { "id": "mil-yulin", "type": "Naval base", "name": "Yulin Naval Base", "lat": 18.227, "lon": 109.547, "country": "China", "summary": "PLA Navy · Hainan submarine base", "severity": 5 },
+    { "id": "mil-qingdao", "type": "Naval base", "name": "Qingdao Naval Base", "lat": 36.07, "lon": 120.38, "country": "China", "summary": "PLA Navy · North Sea Fleet", "severity": 4 }
+  ]
+}

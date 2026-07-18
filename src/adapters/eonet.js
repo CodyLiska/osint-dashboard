@@ -1,5 +1,5 @@
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cachedResilient } from "../lib/cache.js";
+import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
 function bboxParam(bounds) {
@@ -20,8 +20,8 @@ export async function eonetLayer(layer, categories, bounds = {}) {
   const categoryParam = categories.join(",");
   const bbox = bboxParam(bounds);
   const key = `eonet:${layer}:${categoryParam}:${bbox}`;
-  const result = await cached(key, 15 * 60_000, () =>
-    fetchJson(`https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100&category=${encodeURIComponent(categoryParam)}${bbox}`)
+  const result = await cachedResilient(key, 15 * 60_000, () =>
+    fetchJsonRetry(`https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100&category=${encodeURIComponent(categoryParam)}${bbox}`)
   );
 
   const entities = (result.value.events || [])
@@ -44,6 +44,7 @@ export async function eonetLayer(layer, categories, bounds = {}) {
     entities,
     meta: {
       cached: result.cached,
+      stale: Boolean(result.stale),
       source: "NASA EONET",
       categories
     }

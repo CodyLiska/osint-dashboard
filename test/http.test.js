@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { fetchJson, fetchText } from "../src/lib/http.js";
+import { fetchJson, fetchText, fetchJsonRetry } from "../src/lib/http.js";
 
 // Spin up a local origin so these tests never touch the network.
 function startServer() {
@@ -55,5 +55,34 @@ test("fetchText throws an error carrying the HTTP status on 500", async () => {
     });
   } finally {
     server.close();
+  }
+});
+
+test("fetchJsonRetry retries a transient 503 then succeeds", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response("busy", { status: 503, statusText: "Service Unavailable" });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const body = await fetchJsonRetry("http://origin/data");
+    assert.equal(calls, 2);
+    assert.deepEqual(body, { ok: true });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("fetchJsonRetry does not retry a 4xx client error", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; return new Response("bad", { status: 400, statusText: "Bad Request" }); };
+  try {
+    await assert.rejects(fetchJsonRetry("http://origin/data"), (err) => { assert.equal(err.status, 400); return true; });
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = original;
   }
 });
