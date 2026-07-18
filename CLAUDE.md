@@ -62,6 +62,8 @@ Uncommitted changes this session (2026-07-17), verified but not yet committed:
 
 ## Known issues / future enhancements
 
+> **Next-session work plan for the top 3 (frontend tests, ETH lookup, ports cold-start): `docs/NEXT-SESSION-PLAN.md`** — detailed, self-contained, with exact file/line refs, approach, steps, tests, and the env/bootstrap gotchas. Read it first.
+
 - **ETH wallet lookup broken** — `eth.blockscout.com` unreachable (connection fails, HTTP 000); returns raw "fetch failed" with no fallback. BTC (Blockstream) works. `src/adapters/recon.js:122`. Verify host is down/moved vs. blocked; add a fallback provider or a clearer error. Note: neither BTC nor ETH has a fallback if the chain-data host itself fails — only the OFAC check is wrapped in `.catch()`.
 - ~~`military` layer placeholder~~ DONE: now a static layer (`public/data/military.json`, 22 publicly-documented major installations) wired via `STATIC_DATASETS` + `staticKey: "military"`, with a slate 5-point-star icon.
 - **Alerting scope** — Slack alerts fire on ALL source failures (rate-limits tagged 🚫, other errors ⚠️), cooldown-throttled per source. If non-rate-limit noise is unwanted, add a rate-limit-only filter in `src/lib/notify.js`.
