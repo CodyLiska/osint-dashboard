@@ -7,8 +7,16 @@ export async function fetchJson(url, options = {}) {
       ...(options.headers || {})
     }
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) throw httpError(response);
   return response.json();
+}
+
+// Preserve the numeric HTTP status on the thrown error so callers (source-health
+// alerting) can distinguish a rate-limit (429/403) from other failures.
+function httpError(response) {
+  const error = new Error(`${response.status} ${response.statusText}`);
+  error.status = response.status;
+  return error;
 }
 
 export async function fetchText(url, options = {}) {
@@ -20,6 +28,6 @@ export async function fetchText(url, options = {}) {
       ...(options.headers || {})
     }
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) throw httpError(response);
   return response.text();
 }

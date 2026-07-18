@@ -75,3 +75,7 @@ docker compose -f docker-compose.prod.yml up -d --build
   first (an open proxy would burn your API-key quota).
 - Some feeds rate-limit or block scraping from certain IPs; failures surface as
   visible error entities rather than taking the dashboard down.
+- Optional Slack alerting: set `SLACK_WEBHOOK_URL` in the server's `.env` to get a
+  push when a source starts failing (rate-limits tagged 🚫, other errors ⚠️) and a
+  ✅ when it recovers. Repeat alerts for the same source are throttled to once per
+  `ALERT_COOLDOWN_MS` (default 15 min). Unset = no alerts, same as before.

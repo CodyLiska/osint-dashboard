@@ -28,5 +28,19 @@ Active development. 7 of 8 README build phases done (2026-07-17): gazetteer + co
 Remaining / next:
 - README phase 7: authenticated adapters for additional higher-quota sources (open-ended; needs real API keys). `.env.example` documents all optional keys (FREE/PAID tagged).
 - Dead data to resolve: `staticLayers` no longer holds the unused `ports`/`news`/`space` arrays (they had no `staticKey`); confirm they should stay dropped.
-- No committed test suite yet (geoparse + sanctions-cross-check were verified via throwaway node scripts).
+- No committed test suite yet (geoparse, sanctions-cross-check, and the Slack alerting path were verified via throwaway node scripts).
 - Still NOT promoted/deployed: when feature-stable, relocate to `06_Production_Apps/Homelab_Sever/` and deploy per `docs/DEPLOY.md`.
+
+Uncommitted changes this session (2026-07-17), verified but not yet committed:
+- Fixed a listener leak in `renderLayerControls` (`public/app.js`) — the per-render `{ once:true }` `change` listener accumulated and fired duplicate upstream fetches on every toggle (8x measured). Now one delegated listener wired once via `wireLayerControls()`.
+- `military` layer (no adapter) renders disabled/dimmed as "(soon)" instead of silently doing nothing (`public/app.js`, `public/styles.css`).
+- Added inline SVG favicon (`public/index.html`) — removes the 404.
+- Slack alerting on source failure/recovery: `src/lib/notify.js` (new), wired into `withHealth` (`src/lib/health.js`); `src/lib/http.js` attaches `error.status` so 429/403 are detectable. Config: `SLACK_WEBHOOK_URL`, `ALERT_COOLDOWN_MS` (see `.env.example`, `docs/DEPLOY.md`).
+
+## Known issues / future enhancements
+
+- **ETH wallet lookup broken** — `eth.blockscout.com` unreachable (connection fails, HTTP 000); returns raw "fetch failed" with no fallback. BTC (Blockstream) works. `src/adapters/recon.js:122`. Verify host is down/moved vs. blocked; add a fallback provider or a clearer error. Note: neither BTC nor ETH has a fallback if the chain-data host itself fails — only the OFAC check is wrapped in `.catch()`.
+- **`military` layer** is a placeholder — no adapter; shown disabled as "(soon)". Implement an adapter or remove the entry from `layerDefinitions` (`public/data.js`).
+- **Alerting scope** — Slack alerts fire on ALL source failures (rate-limits tagged 🚫, other errors ⚠️), cooldown-throttled per source. If non-rate-limit noise is unwanted, add a rate-limit-only filter in `src/lib/notify.js`.
+- **Optional Docker hardening** — Dockerfile runs as root; add `USER node`.
+- **Deploy prerequisite** — the documented deploy flow (`git clone` / `git pull`) means uncommitted fixes above must be committed + pushed before deploying, or the server pulls stale code.

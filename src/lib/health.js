@@ -1,3 +1,5 @@
+import { alertSource, clearSourceAlert } from "./notify.js";
+
 const health = new Map();
 
 export function markSource(id, patch) {
@@ -25,6 +27,7 @@ export async function withHealth(id, source, action) {
       cached: Boolean(result?.meta?.cached),
       lastSuccess: new Date().toISOString()
     });
+    clearSourceAlert(id, source);
     return result;
   } catch (error) {
     markSource(id, {
@@ -33,6 +36,7 @@ export async function withHealth(id, source, action) {
       error: error.message,
       cached: false
     });
+    alertSource(id, source, error);
     throw error;
   }
 }

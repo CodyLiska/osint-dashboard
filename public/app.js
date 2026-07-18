@@ -240,17 +240,25 @@ function renderLayerControls() {
   for (const layer of layerDefinitions) {
     const count = visibleEntities(layer.id).length;
     const menuIcon = menuIcons[layer.id] || "";
+    // No live adapter and no static dataset — nothing to load, so the toggle is
+    // disabled rather than silently doing nothing when checked.
+    const unavailable = !layer.live && !layer.staticKey;
     const row = document.createElement("label");
-    row.className = "layer-row";
+    row.className = `layer-row${unavailable ? " unavailable" : ""}`;
     row.innerHTML = `
-      <input type="checkbox" ${state.enabled.has(layer.id) ? "checked" : ""} data-layer="${layer.id}">
+      <input type="checkbox" ${state.enabled.has(layer.id) ? "checked" : ""}${unavailable ? " disabled title=\"No data source yet\"" : ""} data-layer="${layer.id}">
       <span class="swatch ${menuIcon ? "icon-swatch" : ""}" style="--swatch: rgb(${layer.color.join(",")})">${menuIcon}</span>
-      <span class="layer-label">${layer.label}</span>
+      <span class="layer-label">${layer.label}${unavailable ? " (soon)" : ""}</span>
       <strong>${count}</strong>
     `;
     els.layerList.append(row);
   }
+}
 
+// Attached once at startup. Event delegation on the container means a single
+// listener survives every renderLayerControls() re-render — re-attaching it per
+// render (as before) leaked listeners and fired duplicate fetches on each toggle.
+function wireLayerControls() {
   els.layerList.addEventListener("change", async (event) => {
     const id = event.target.dataset.layer;
     if (!id) return;
@@ -259,7 +267,7 @@ function renderLayerControls() {
     persist();
     await ensureLayer(id);
     renderAll();
-  }, { once: true });
+  });
 }
 
 function normalizeStatic(layer) {
@@ -1059,6 +1067,7 @@ function wireSeverityFilter() {
 
 initMap();
 renderLayerControls();
+wireLayerControls();
 wireReconTools();
 wireSeverityFilter();
 tickClock();

@@ -187,6 +187,11 @@ h1 {
   accent-color: var(--accent);
 }
 
+.layer-row.unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .swatch {
   width: 10px;
   height: 10px;
