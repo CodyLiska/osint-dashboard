@@ -201,6 +201,19 @@ export function cveDetail(row) {
   `;
 }
 
+// Coarse "3m ago" / "5h ago" / "2d ago" label for a timestamp, used by the
+// What-Changed panel. `now` is injectable so it is deterministically testable.
+export function relativeTime(iso, now = Date.now()) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const mins = Math.round((now - ms) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
 // Trim an entity to the fields worth putting in an exported analyst snapshot.
 export function snapshotEntity(item) {
   return {

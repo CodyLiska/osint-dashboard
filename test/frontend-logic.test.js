@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   escapeHtml, clusterPoints, shouldCluster, filterBySeverity, advancePosition,
   byPriority, buildFeed, detailRows, snapshotEntity, kvRow, extLink,
-  sanctionDetail, intelLinks, cveDetail
+  sanctionDetail, intelLinks, cveDetail, relativeTime
 } from "../public/logic.js";
 
 test("escapeHtml neutralizes every HTML metacharacter", () => {
@@ -149,6 +149,15 @@ test("intelLinks returns the right pivot portals per indicator kind", () => {
   assert.match(intelLinks("ip", "1.2.3.4"), /viz\.greynoise\.io/);
   assert.match(intelLinks("domain", "evil.test"), /otx\.alienvault\.com/);
   assert.equal(intelLinks("whois", "x"), ""); // no pivot links for whois
+});
+
+test("relativeTime buckets an elapsed timestamp into minutes/hours/days", () => {
+  const now = Date.parse("2026-07-19T12:00:00.000Z");
+  assert.equal(relativeTime("2026-07-19T11:59:40.000Z", now), "just now"); // <1 min
+  assert.equal(relativeTime("2026-07-19T11:45:00.000Z", now), "15m ago");
+  assert.equal(relativeTime("2026-07-19T09:00:00.000Z", now), "3h ago");
+  assert.equal(relativeTime("2026-07-17T12:00:00.000Z", now), "2d ago");
+  assert.equal(relativeTime(undefined, now), ""); // unparseable → empty
 });
 
 test("cveDetail renders CVSS, description, and the NVD link", () => {

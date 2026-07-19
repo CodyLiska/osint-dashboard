@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { installFetch } from "./helpers/mock-fetch.js";
 import { createServer } from "../server.js";
+import { closeDb, openDb, reconcile } from "../src/lib/persist.js";
 
 // Upstreams the routing tests may reach are mocked so the recon/layer routes run
 // end-to-end without the network. One SDN fixture serves both crypto and entity
@@ -178,4 +179,49 @@ test("GET /api/intel/whois returns a parsed RDAP summary", async () => {
   const res = await get("/api/intel/whois?query=example.com");
   assert.equal(res.status, 200);
   assert.equal(res.json().summary.domain, "EXAMPLE.COM");
+});
+
+// ---- Phase 2 read API ------------------------------------------------------
+// With no DB open (the default in this suite) the endpoints return the graceful
+// disabled shape rather than erroring.
+
+test("GET /api/changes returns { enabled:false } when persistence is disabled", async () => {
+  const res = await get("/api/changes");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json(), { enabled: false });
+});
+
+test("GET /api/history/:layer returns { enabled:false } when persistence is disabled", async () => {
+  const res = await get("/api/history/seismic");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json(), { enabled: false });
+});
+
+test("GET /api/changes rejects a non-ISO since with 400", async () => {
+  const res = await get("/api/changes?since=not-a-date");
+  assert.equal(res.status, 400);
+  assert.match(res.json().error, /ISO 8601/);
+});
+
+test("GET /api/changes and /api/history/:layer read from an enabled store", async () => {
+  const db = openDb(":memory:"); // opens the module singleton the server reads
+  try {
+    reconcile(db, "seismic", [{ id: "q1", name: "A" }, { id: "q2", name: "B" }], "2026-07-19T00:00:00.000Z");
+    reconcile(db, "seismic", [{ id: "q1" }, { id: "q3", name: "C" }], "2026-07-19T02:00:00.000Z"); // q2 closes, q3 added
+
+    const changes = await get("/api/changes?since=2026-07-19T01:00:00.000Z");
+    assert.equal(changes.status, 200);
+    const cbody = changes.json();
+    assert.equal(cbody.enabled, true);
+    assert.deepEqual(cbody.added.map((c) => c.id), ["q3"]);
+    assert.deepEqual(cbody.closed.map((c) => c.id), ["q2"]);
+
+    const history = await get("/api/history/seismic?since=2026-07-19T00:00:00.000Z&until=2026-07-19T01:00:00.000Z");
+    assert.equal(history.status, 200);
+    const hbody = history.json();
+    assert.equal(hbody.enabled, true);
+    assert.deepEqual(hbody.events.map((e) => e.id).sort(), ["q1", "q2"]);
+  } finally {
+    closeDb(); // leave persistence disabled for any later tests
+  }
 });

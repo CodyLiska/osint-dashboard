@@ -67,9 +67,39 @@ git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+## Historical persistence (optional)
+
+The compose file enables a durable event history via built-in `node:sqlite` (no
+npm deps), stored on a named Docker volume `osiris-data` mounted at `/app/data`
+(`OSIRIS_DB_PATH=/app/data/osiris.db`). This powers "what changed since X",
+trends, and survival across restart. It persists only live, event-shaped,
+stable-id layers (`seismic,weather,cyber,news,conflict,telegram`); kinematic and
+static layers are excluded. Closed events older than `OSIRIS_RETENTION_DAYS`
+(default 90) are pruned automatically.
+
+To run **stateless** (old behavior), comment out `OSIRIS_DB_PATH` and the
+`volumes:` block in `docker-compose.prod.yml`.
+
+Verify persistence survives a container *recreate* (not just a restart) — this
+is what proves the volume, not the container filesystem, holds the data:
+
+```bash
+curl -s "http://localhost:${WEB_PORT:-8092}/api/layers/seismic" >/dev/null   # populate
+docker compose -f docker-compose.prod.yml up -d --force-recreate
+curl -s "http://localhost:${WEB_PORT:-8092}/api/history/seismic" | head       # rows survive
+docker compose -f docker-compose.prod.yml exec osiris id                       # uid=1000(node)
+```
+
+Read endpoints (return `{ "enabled": false }` when persistence is off):
+
+- `GET /api/changes?since=<ISO>` — events added/closed since a timestamp (defaults to 24h ago).
+- `GET /api/history/:layer?since=&until=` — events active in a time window.
+
+Back up the volume with `docker run --rm -v osiris-data:/data -v "$PWD":/backup alpine tar czf /backup/osiris-data.tgz -C /data .`.
+
 ## Notes
 
-- State (response cache + source health) is in-memory and resets on restart. Nothing to back up.
+- Response cache + source health are in-memory and reset on restart. The optional SQLite event history (above) is the only durable state; unset `OSIRIS_DB_PATH` for the original stateless behavior.
 - No auth or rate limiting: the API proxy routes are open. Keep this LAN-only.
   Do not expose the port to the internet without adding auth + rate limiting
   first (an open proxy would burn your API-key quota).

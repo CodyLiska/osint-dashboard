@@ -425,14 +425,14 @@ h1 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 5px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
 }
 
 .tab {
   min-height: 34px;
-  padding-inline: 4px;
-  font-size: 12px;
+  padding-inline: 2px;
+  font-size: 11px;
   white-space: nowrap;
   color: var(--muted);
 }
@@ -691,6 +691,58 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.changes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.changes-result {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.changes-since {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.change-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.change-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.change-head span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.change-up {
+  color: var(--accent);
+}
+
+.change-down {
+  color: var(--danger);
 }
 
 .severity-filter {

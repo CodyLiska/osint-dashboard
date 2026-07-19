@@ -1,7 +1,7 @@
 import { layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
-  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, cveDetail,
+  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, cveDetail, relativeTime,
   CLUSTER_MAX_ZOOM
 } from "./logic.js";
 
@@ -918,6 +918,70 @@ function renderFeeds() {
   });
 }
 
+// Combined added+closed change objects for the currently rendered What-Changed
+// panel, so a clicked item maps back to its stored entity (which carries lat/lon
+// and everything showDetail needs — no re-fetch).
+let changeItems = [];
+
+async function renderChanges() {
+  const panel = document.querySelector("#changes-result");
+  if (!panel) return;
+  panel.innerHTML = `<div class="health-empty">Loading changes…</div>`;
+  const since = store.changesSince;
+  let payload;
+  try {
+    payload = await fetchJson(`/api/changes${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+  } catch {
+    panel.innerHTML = `<div class="health-empty">Change history unavailable.</div>`;
+    return;
+  }
+  if (!payload.enabled) {
+    panel.innerHTML = `<div class="health-empty">Historical persistence is disabled. Set <code>OSIRIS_DB_PATH</code> on the server to track what appeared or dropped out between visits.</div>`;
+    return;
+  }
+
+  const added = payload.added || [];
+  const closed = payload.closed || [];
+  changeItems = [...added, ...closed];
+  const sinceLabel = payload.since ? new Date(payload.since).toLocaleString() : "recently";
+  panel.innerHTML = `
+    <div class="changes-since">Since ${escapeHtml(sinceLabel)}</div>
+    ${changeGroupHtml("Appeared", "up", added)}
+    ${changeGroupHtml("Dropped off", "down", closed)}
+    ${changeItems.length === 0 ? `<div class="health-empty">No changes in persistable layers since then.</div>` : ""}
+  `;
+
+  // Buttons render in changeItems order (added then closed), so the NodeList
+  // index lines up with the array.
+  panel.querySelectorAll(".feed-item").forEach((button, index) => {
+    button.addEventListener("click", () => {
+      const entity = changeItems[index]?.entity;
+      if (!entity || !Number.isFinite(entity.lat) || !Number.isFinite(entity.lon)) return;
+      state.map.flyTo({ center: [entity.lon, entity.lat], zoom: 5 });
+      showDetail(entity);
+    });
+  });
+}
+
+function changeGroupHtml(title, dir, items) {
+  if (!items.length) return "";
+  const rows = items.map((change) => {
+    const entity = change.entity || {};
+    const name = entity.name || entity.id || change.id;
+    const when = dir === "up" ? change.firstSeen : change.closedAt;
+    return `
+      <button class="feed-item" type="button">
+        <strong>${escapeHtml(String(name))}</strong>
+        <span>${escapeHtml(`${layerLabels.get(change.layer) || change.layer} · ${relativeTime(when)}`)}</span>
+      </button>`;
+  }).join("");
+  return `
+    <div class="change-group">
+      <h3 class="change-head change-${dir}">${dir === "up" ? "▲" : "▼"} ${escapeHtml(title)} <span>${items.length}</span></h3>
+      <div class="feed-list">${rows}</div>
+    </div>`;
+}
+
 async function refreshViewportAware() {
   await Promise.all([...VIEWPORT_AWARE_LAYERS].map((id) => refreshLiveLayer(id)));
 }
@@ -964,6 +1028,8 @@ function switchReconTab(tabId) {
   document.querySelectorAll(".tab, .tool-panel").forEach((el) => el.classList.remove("active"));
   document.querySelector(`.tab[data-tab="${tabId}"]`)?.classList.add("active");
   document.querySelector(`#${tabId}`)?.classList.add("active");
+  // The What-Changed panel is fetched lazily each time it is opened.
+  if (tabId === "changes") renderChanges();
 }
 
 // Push a lookup onto the persisted history. `restore` maps input selectors to the
@@ -1150,6 +1216,14 @@ function wireReconTools() {
     store.reconHistory = [];
     persist();
     renderReconHistory();
+  });
+
+  document.querySelector("#changes-refresh").addEventListener("click", renderChanges);
+  document.querySelector("#changes-mark-seen").addEventListener("click", () => {
+    // Acknowledge the current picture: subsequent "what changed" is relative to now.
+    store.changesSince = new Date().toISOString();
+    persist();
+    renderChanges();
   });
 
   document.querySelector("#refresh-active").addEventListener("click", async () => {

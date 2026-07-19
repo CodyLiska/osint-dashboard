@@ -14,8 +14,18 @@ ENV PORT=4173
 
 EXPOSE 4173
 
-# Drop root: the app writes nothing to disk (cache is in-memory) and binds a
-# non-privileged port, so it runs fine as the unprivileged built-in `node` user.
+# Writable, node-owned data dir for optional historical persistence
+# (OSIRIS_DB_PATH). Created here as root so a fresh named volume mounted at
+# /app/data inherits node:node ownership on first mount; without it the
+# unprivileged user hits EACCES and history silently stays empty. Persistence is
+# still fully optional — unset OSIRIS_DB_PATH and nothing is written here.
+RUN mkdir -p /app/data && chown node:node /app/data
+
+# Drop root: the app writes nothing to disk unless persistence is enabled (then
+# only to /app/data, owned above) and binds a non-privileged port, so it runs
+# fine as the unprivileged built-in `node` user.
 USER node
 
-CMD ["node", "server.js"]
+# --disable-warning=ExperimentalWarning silences the node:sqlite experimental
+# notice (used only when persistence is enabled) while keeping other warnings.
+CMD ["node", "--disable-warning=ExperimentalWarning", "server.js"]

@@ -13,4 +13,12 @@ services:
       # Ensure the container binds all interfaces regardless of .env contents.
       HOST: 0.0.0.0
       PORT: 4173
+      # Enable optional historical persistence, stored on the named volume below.
+      # Comment this out (and the volume) to run stateless as before.
+      OSIRIS_DB_PATH: /app/data/osiris.db
+    volumes:
+      - osiris-data:/app/data
     restart: unless-stopped
+
+volumes:
+  osiris-data: {}

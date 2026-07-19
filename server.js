@@ -15,6 +15,7 @@ import {
 import { btcLookup, cveSearch, ethLookup, sanctionsSearch } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
+import { getChanges, getHistory, openDb, persistSnapshot, startRetention } from "./src/lib/persist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -138,6 +139,15 @@ async function handleLayer(req, res, url, layer) {
       generatedAt: new Date().toISOString()
     }
   });
+
+  // Fire-and-forget history write, after the response is sent. No-op unless
+  // OSIRIS_DB_PATH is set and the layer is persistable; a failure here must never
+  // delay or break the layer response, so it is caught and logged.
+  try {
+    persistSnapshot(layer, payload.entities);
+  } catch (error) {
+    console.error(`[persist] ${layer}:`, error.message);
+  }
 }
 
 async function handleApi(req, res, url) {
@@ -147,6 +157,30 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === "/api/health") {
       return sendJson(res, 200, { sources: getHealth() }, {
+        ...jsonHeaders,
+        "cache-control": "no-store"
+      });
+    }
+
+    if (url.pathname === "/api/changes") {
+      const raw = url.searchParams.get("since");
+      if (raw && Number.isNaN(Date.parse(raw))) {
+        return sendJson(res, 400, { error: "since must be an ISO 8601 timestamp" });
+      }
+      const since = raw || new Date(Date.now() - 86_400_000).toISOString();
+      return sendJson(res, 200, getChanges(since), { ...jsonHeaders, "cache-control": "no-store" });
+    }
+
+    const historyMatch = url.pathname.match(/^\/api\/history\/([a-z0-9-]+)$/);
+    if (historyMatch) {
+      const since = url.searchParams.get("since");
+      const until = url.searchParams.get("until");
+      for (const [name, value] of [["since", since], ["until", until]]) {
+        if (value && Number.isNaN(Date.parse(value))) {
+          return sendJson(res, 400, { error: `${name} must be an ISO 8601 timestamp` });
+        }
+      }
+      return sendJson(res, 200, getHistory(historyMatch[1], { since, until }), {
         ...jsonHeaders,
         "cache-control": "no-store"
       });
@@ -288,6 +322,8 @@ export function createServer() {
 // Listen only when run directly (`node server.js`); stay silent when imported by
 // tests so routing can be exercised on an ephemeral port without side effects.
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  openDb(); // no-op unless OSIRIS_DB_PATH is set
+  startRetention();
   createServer().listen(port, host, () => {
     console.log(`OSINT dashboard running at http://${host}:${port}`);
   });
