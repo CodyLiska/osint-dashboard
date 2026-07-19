@@ -40,6 +40,7 @@ function upstream(url) {
   if (url.includes("earthquake.usgs.gov")) return usgsFeed;
   if (url.includes("treasury.gov/ofac/downloads/sdn.xml")) return sdnXml;
   if (url.includes("blockstream.info")) return { address: "x", chain_stats: {} };
+  if (url.includes("api.ethplorer.io")) return { ETH: { balance: 1.5 }, tokens: [] };
   if (url.includes("services.nvd.nist.gov")) return { totalResults: 1, vulnerabilities: [{ cve: { id: "CVE-2026-0001" } }] };
   if (url.includes("rdap.org")) return rdapDomain;
   return "";
@@ -142,6 +143,21 @@ test("GET /api/crypto/btc reports OFAC exposure for a sanctioned address", async
   const body = res.json();
   assert.equal(body.chain, "BTC");
   assert.equal(body.sanctioned, true);
+});
+
+test("GET /api/crypto/eth returns balance data and the OFAC verdict", async () => {
+  const res = await get("/api/crypto/eth?address=0x0000000000000000000000000000000000000000");
+  assert.equal(res.status, 200);
+  const body = res.json();
+  assert.equal(body.chain, "ETH");
+  assert.equal(body.data.balanceEth, 1.5); // from the mocked Ethplorer response
+  assert.equal(body.sanctioned, false);    // address not in the SDN fixture
+});
+
+test("GET /api/crypto/eth without an address returns 400", async () => {
+  const res = await get("/api/crypto/eth");
+  assert.equal(res.status, 400);
+  assert.equal(res.json().error, "address required");
 });
 
 test("GET /api/sanctions searches the sanctions feed", async () => {
