@@ -1,7 +1,6 @@
 .git
 .gitignore
-.env
-.env.*
+.env*
 !.env.example
 .ai-smell
 .claude
