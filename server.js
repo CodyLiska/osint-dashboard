@@ -2,7 +2,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { layerEntities } from "./src/adapters/layers.js";
+import { layerEntities, sourceName as sourceNameForLayer } from "./src/adapters/layers.js";
 import {
   abuseIpLookup,
   greyNoiseLookup,
@@ -67,24 +67,6 @@ function boundsFromSearchParams(params) {
     lamax: params.get("lamax"),
     lomax: params.get("lomax")
   };
-}
-
-function sourceNameForLayer(layer) {
-  return {
-    aviation: "OpenSky Network",
-    "military-air": "OpenSky (military)",
-    fires: "NASA FIRMS",
-    ports: "NGA World Port Index",
-    weather: "NASA EONET",
-    seismic: "USGS",
-    telegram: "Telegram public preview",
-    cyber: "NVD",
-    space: process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC",
-    maritime: process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory",
-    news: process.env.NEWSAPI_KEY ? "NewsAPI" : "Static broadcaster directory",
-    crypto: "OFAC SDN",
-    sanctions: "Official sanctions feeds"
-  }[layer] || layer;
 }
 
 function legacyPayload(layer, payload) {

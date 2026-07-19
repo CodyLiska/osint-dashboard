@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cached, cachedResilient, clearCache } from "../src/lib/cache.js";
+import { cached, cachedResilient, cacheSize, clearCache } from "../src/lib/cache.js";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -65,6 +65,33 @@ test("cachedResilient de-duplicates concurrent loads for the same key", async ()
   assert.equal(a.value, 1);
   assert.equal(b.value, 1);
   assert.equal(c.value, 1);
+});
+
+test("the cache is bounded — least-recently-used entries are evicted past the cap", async () => {
+  clearCache();
+  const prev = process.env.OSIRIS_CACHE_MAX_ENTRIES;
+  process.env.OSIRIS_CACHE_MAX_ENTRIES = "3";
+  try {
+    for (const k of ["a", "b", "c"]) await cached(`lru:${k}`, 60_000, async () => k);
+    assert.equal(cacheSize(), 3);
+    // Touch "a" so it is most-recently-used, then insert "d" — the oldest
+    // untouched entry ("b") is evicted, not "a".
+    await cached("lru:a", 60_000, async () => "a"); // hit → marks a as MRU
+    let reloads = 0;
+    await cached("lru:d", 60_000, async () => { reloads++; return "d"; });
+    assert.equal(cacheSize(), 3); // still capped
+    // "a" survived (served from cache), "b" was evicted (reloads on next call)
+    let aReloaded = 0;
+    await cached("lru:a", 60_000, async () => { aReloaded++; return "a"; });
+    assert.equal(aReloaded, 0, "recently-used entry must survive eviction");
+    let bReloaded = 0;
+    await cached("lru:b", 60_000, async () => { bReloaded++; return "b"; });
+    assert.equal(bReloaded, 1, "least-recently-used entry must have been evicted");
+  } finally {
+    if (prev === undefined) delete process.env.OSIRIS_CACHE_MAX_ENTRIES;
+    else process.env.OSIRIS_CACHE_MAX_ENTRIES = prev;
+    clearCache();
+  }
 });
 
 test("clearCache(prefix) removes only matching keys", async () => {

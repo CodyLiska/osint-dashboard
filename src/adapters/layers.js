@@ -10,19 +10,56 @@ import { maritimeLayer } from "./maritime.js";
 import { newsLayer } from "./news.js";
 import { portsLayer } from "./ports.js";
 
+// Single backend source-of-truth for every server-side layer. Adding a source
+// means adding ONE row here — its adapter dispatch (`load`), its health-panel
+// name (`sourceName`), and whether it feeds historical persistence (`persist`)
+// all live together, instead of drifting across three separate maps.
+//
+// Fields:
+//   id         - the /api/layers/:id key
+//   sourceName - health-panel label; a function when it depends on config (a key
+//                present vs. the keyless fallback)
+//   load       - (bounds) => { entities, meta }; null for a known-but-static layer
+//                that has no backend adapter yet (still 404s on /api/layers)
+//   persist    - true only for live, event-shaped, stable-id, low-volume layers
+//                (see the checklist in docs/PLAN-persistence.md before flipping it)
+const LAYERS = [
+  { id: "aviation", sourceName: "OpenSky Network", load: (b) => aviationLayer(b), persist: false },
+  { id: "military-air", sourceName: "OpenSky (military)", load: (b) => militaryAircraftLayer(b), persist: false },
+  { id: "fires", sourceName: "NASA FIRMS", load: (b) => firesLayer(b), persist: false },
+  { id: "weather", sourceName: "NASA EONET", load: (b) => eonetLayer("weather", ["severeStorms", "floods", "volcanoes"], b), persist: true },
+  { id: "ports", sourceName: "NGA World Port Index", load: (b) => portsLayer(b), persist: false },
+  { id: "seismic", sourceName: "USGS", load: () => seismicLayer(), persist: true },
+  { id: "telegram", sourceName: "Telegram public preview", load: () => telegramLayer(), persist: true },
+  { id: "cyber", sourceName: "NVD", load: () => cyberLayer(), persist: true },
+  { id: "news", sourceName: () => (process.env.NEWSAPI_KEY ? "NewsAPI" : "Static broadcaster directory"), load: () => newsLayer(), persist: true },
+  { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC"), load: () => spaceWeatherLayer(), persist: false },
+  { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false },
+  { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false },
+  { id: "sanctions", sourceName: "Official sanctions feeds", load: () => sanctionsLayer(), persist: false },
+  // Static today (public/data/conflict.json, rendered client-side, no /api/layers
+  // adapter). Kept here so it is already persistable the moment it goes live via
+  // ACLED/GDELT — see docs/FUTURE-DATA-SOURCES.md §1.
+  { id: "conflict", sourceName: "Conflict events (static)", load: null, persist: true }
+];
+
+const byId = new Map(LAYERS.map((layer) => [layer.id, layer]));
+
 export async function layerEntities(layer, bounds = {}) {
-  if (layer === "aviation") return aviationLayer(bounds);
-  if (layer === "military-air") return militaryAircraftLayer(bounds);
-  if (layer === "fires") return firesLayer(bounds);
-  if (layer === "weather") return eonetLayer("weather", ["severeStorms", "floods", "volcanoes"], bounds);
-  if (layer === "ports") return portsLayer(bounds);
-  if (layer === "seismic") return seismicLayer();
-  if (layer === "telegram") return telegramLayer();
-  if (layer === "cyber") return cyberLayer();
-  if (layer === "space") return spaceWeatherLayer();
-  if (layer === "crypto") return cryptoLayer();
-  if (layer === "sanctions") return sanctionsLayer();
-  if (layer === "maritime") return maritimeLayer(bounds);
-  if (layer === "news") return newsLayer();
-  return null;
+  const entry = byId.get(layer);
+  if (!entry || !entry.load) return null;
+  return entry.load(bounds);
+}
+
+// Health-panel display name for a layer (resolving the config-dependent ones).
+// Falls back to the raw id for unknown layers.
+export function sourceName(layer) {
+  const entry = byId.get(layer);
+  if (!entry) return layer;
+  return typeof entry.sourceName === "function" ? entry.sourceName() : entry.sourceName;
+}
+
+// Ids of layers that feed historical persistence — the default OSIRIS_PERSIST_LAYERS.
+export function persistableIds() {
+  return LAYERS.filter((layer) => layer.persist).map((layer) => layer.id);
 }

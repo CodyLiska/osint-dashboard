@@ -37,6 +37,19 @@ Do **not** think of this as "snapshot the cache." Think of it as an **append-onl
 `seismic` (USGS quake ids), `weather` (EONET event ids), `cyber` (CVE/KEV ids), `news`, `conflict`, `telegram`.
 Seismic + weather are the two certain wins and mirror risk-radar exactly. Volume sanity: seismic ~30–300/day, EONET ~tens open, cyber ~hundreds/day, news ~dozens — all trivial for SQLite. (`conflict` is static today but becomes event-shaped the moment it goes live via ACLED/GDELT per FUTURE-DATA-SOURCES §1.)
 
+> **Source of truth (as built):** the allowlist is declared once, as the `persist` flag on each layer's row in the backend registry `src/adapters/layers.js`; `persist.js` derives the default `OSIRIS_PERSIST_LAYERS` from `persistableIds()`. `conflict` is a static placeholder row there (`load: null`, `persist: true`) so it is already allowlisted when it goes live. The `OSIRIS_PERSIST_LAYERS` env var still overrides the default at runtime.
+
+### Checklist — before flipping a layer's `persist` flag to `true`
+
+Reconcile is upsert-by-`(layer, entity_id)` + close-absentees, run on *every* successful fetch. That model only behaves for a specific shape of source. Before adding a layer to persistence, confirm **all four**:
+
+1. **Stable entity id.** The id must come from a durable upstream identifier (a permalink, a record id, a CVE number) so the same real-world event yields the same id across fetches. An id built from array position/index churns → every fetch inserts "new" rows and closes the old ones → the table bloats and "what changed" is all noise. (This is why `telegram` was gated on `data-post` — resolved — and why any position-fallback id is a red flag.)
+2. **Event-shaped, not kinematic.** The layer must be discrete events that *appear and disappear* (quakes, CVEs, conflict events), not continuously-moving points. A plane's or vessel's position is live-only value; persisting it 60s at a time balloons the store for nothing. Aviation/military-air/maritime stay `persist: false`.
+3. **Not static.** Static layers (ports/cctv/chokepoints/military) are already versioned files in `public/data/`; they have no history to capture. Leave them off.
+4. **Bounded volume per fetch.** Reconcile writes one row per entity every poll. Tens–hundreds per fetch is fine (SQLite laughs at it); thousands-per-fetch on a fast poll is not — reconsider or down-sample first.
+
+If any of the four fails, keep `persist: false` (the layer still renders and serves normally; it just isn't recorded to history).
+
 **Reconcile, per layer, per successful fetch** (one transaction):
 1. For each entity in the snapshot: **upsert** by `(layer, entity_id)` — insert with `first_seen = now` if new; otherwise set `last_seen = now`, `status = 'active'`, `closed_at = NULL`, and refresh `severity`/`lat`/`lon`/`name`/`payload`.
 2. **Close absentees:** any row for this layer still `status='active'` whose `last_seen < now` (i.e. not touched this batch) → `status='closed'`, `closed_at = now`.
@@ -145,7 +158,7 @@ The hardened Dockerfile makes the app **write nothing to disk** and run as non-r
 ## Open questions to resolve before Phase 1
 
 1. **`telegram` entity ids — RESOLVED (2026-07-19): stable, keep in allowlist.** `telegram.js:67` builds `tg-${channel}-${data-post}`, where `data-post` is Telegram's canonical post permalink (`channel/<msg#>`) — the same post yields the same id across scrapes. Reconcile works correctly: a post holds identity while in the preview window and closes when it scrolls out of the last-10 slice (accurate). Minor edge: the rare `|| index` fallback (only when a block lacks `data-post`) uses a position-based id that can churn; harmless at this scale. Optional later hardening: persist only entities whose id came from `data-post`. Not a Phase 1 blocker.
-2. **`conflict` today is static** — persisting a static layer is harmless but pointless. Keep it in the allowlist as a no-op-until-live, or add only when it goes live? (Lean: leave it; it's cheap and future-proofs the ACLED/GDELT swap.)
+2. **`conflict` today is static — RESOLVED (2026-07-19): kept, as a placeholder registry row.** Implemented in `src/adapters/layers.js` as `{ id: "conflict", load: null, persist: true }` — no backend adapter yet (so `/api/layers/conflict` still 404s and nothing is written today), but it stays in the derived default allowlist so the ACLED/GDELT swap is persistence-ready with no allowlist edit.
 3. **WAL mode?** Single-process, low write rate — default rollback journal is fine. Revisit only if write contention ever appears (it won't at this scale).
 
 ---

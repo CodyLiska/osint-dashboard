@@ -1,12 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
+import { persistableIds } from "../adapters/layers.js";
 
 // Optional historical persistence for OSIRIS. Fully off unless OSIRIS_DB_PATH is
 // set — with it unset, every export here is a no-op and the app behaves exactly
-// as it did before. Only live, event-shaped, stable-id, low-volume layers are
-// persisted (see DEFAULT_LAYERS); kinematic (aviation/maritime) and static
+// as it did before. The set of persisted layers is declared once, on the layer
+// registry (src/adapters/layers.js `persist` flag): only live, event-shaped,
+// stable-id, low-volume layers; kinematic (aviation/maritime) and static
 // (ports/cctv) layers are deliberately excluded. See docs/PLAN-persistence.md.
 
-const DEFAULT_LAYERS = "seismic,weather,cyber,news,conflict,telegram";
+const DEFAULT_LAYERS = persistableIds().join(",");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS entity_events (

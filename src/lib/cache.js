@@ -1,15 +1,48 @@
-const cache = new Map();
+// In-memory TTL cache with a bounded, LRU-evicted keyspace. The bound matters
+// because the recon/enrich routes (whois, sanctions, cve, geocode, ip-intel) key
+// entries by arbitrary user input — without a cap that keyspace grows for the life
+// of the process. Layer feeds use a small fixed set of keys and, because every
+// poll touches them, stay at the most-recently-used end and are never evicted.
+const cache = new Map(); // insertion order == LRU order (oldest first)
 const inFlight = new Map();
+
+// Max distinct entries before least-recently-used ones are evicted. Overridable
+// via OSIRIS_CACHE_MAX_ENTRIES; read per-write so it is easy to test.
+function capacity() {
+  const n = Number(process.env.OSIRIS_CACHE_MAX_ENTRIES);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+}
+
+// Read an entry and mark it most-recently-used (re-insert at the end) so active
+// keys survive eviction. Returns undefined on a miss.
+function readEntry(key) {
+  const hit = cache.get(key);
+  if (!hit) return undefined;
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit;
+}
+
+// Write an entry as most-recently-used, then evict from the oldest end until the
+// cache is within capacity.
+function writeEntry(key, value, time) {
+  cache.delete(key);
+  cache.set(key, { time, value });
+  const max = capacity();
+  while (cache.size > max) {
+    cache.delete(cache.keys().next().value); // oldest / least-recently-used
+  }
+}
 
 export async function cached(key, ttlMs, loader) {
   const now = Date.now();
-  const hit = cache.get(key);
+  const hit = readEntry(key);
   if (hit && now - hit.time < ttlMs) {
     return { value: hit.value, cached: true, ageMs: now - hit.time };
   }
 
   const value = await loader();
-  cache.set(key, { time: now, value });
+  writeEntry(key, value, now);
   return { value, cached: false, ageMs: 0 };
 }
 
@@ -20,7 +53,7 @@ export async function cached(key, ttlMs, loader) {
 // `stale` flag instead of throwing. Only a cold failure with nothing cached rejects.
 export async function cachedResilient(key, ttlMs, loader) {
   const now = Date.now();
-  const hit = cache.get(key);
+  const hit = readEntry(key);
   if (hit && now - hit.time < ttlMs) {
     return { value: hit.value, cached: true, ageMs: now - hit.time };
   }
@@ -43,7 +76,7 @@ export async function cachedResilient(key, ttlMs, loader) {
   inFlight.set(key, promise);
   try {
     const value = await promise;
-    cache.set(key, { time: now, value });
+    writeEntry(key, value, now);
     return { value, cached: false, ageMs: 0 };
   } catch (error) {
     return staleOnError(error);
@@ -56,4 +89,8 @@ export function clearCache(prefix) {
   for (const key of cache.keys()) {
     if (!prefix || key.startsWith(prefix)) cache.delete(key);
   }
+}
+
+export function cacheSize() {
+  return cache.size;
 }
