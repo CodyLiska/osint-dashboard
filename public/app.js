@@ -1,4 +1,9 @@
 import { layerDefinitions, loadStaticLayers } from "./data.js";
+import {
+  escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
+  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, cveDetail,
+  CLUSTER_MAX_ZOOM
+} from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
 let staticLayers = {};
@@ -78,13 +83,6 @@ const LAYER_REFRESH_MS = {
 // clock) rather than fixed wall-clock multiples.
 const POLL_TICK_MS = 15_000;
 const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports"]);
-
-// Dense layers that collapse into count badges when zoomed out. A layer only
-// clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
-// is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports"]);
-const CLUSTER_MIN_POINTS = 15;
-const CLUSTER_MAX_ZOOM = 5;
 
 const els = {
   layerList: document.querySelector("#layer-list"),
@@ -438,47 +436,7 @@ async function fetchJson(url) {
 }
 
 function visibleEntities(id) {
-  const rows = state.data.get(id) || [];
-  if (state.minSeverity <= 1) return rows;
-  return rows.filter((row) => (Number(row.severity) || 1) >= state.minSeverity);
-}
-
-function shouldCluster(id, rows, zoom) {
-  return CLUSTER_LAYERS.has(id) && rows.length >= CLUSTER_MIN_POINTS && zoom < CLUSTER_MAX_ZOOM;
-}
-
-// Grid-bin points into clusters. Cells shrink as you zoom in, so clusters split
-// apart. A cell with one point is returned as a single (rendered as its normal
-// icon); multi-point cells collapse into one count badge at the cell centroid.
-function clusterPoints(rows, zoom) {
-  const cellDeg = 90 / 2 ** zoom;
-  const bins = new Map();
-  for (const row of rows) {
-    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
-    const key = `${Math.floor(row.lon / cellDeg)}:${Math.floor(row.lat / cellDeg)}`;
-    let bin = bins.get(key);
-    if (!bin) {
-      bin = { sumLon: 0, sumLat: 0, items: [] };
-      bins.set(key, bin);
-    }
-    bin.sumLon += row.lon;
-    bin.sumLat += row.lat;
-    bin.items.push(row);
-  }
-  const singles = [];
-  const clusters = [];
-  for (const bin of bins.values()) {
-    if (bin.items.length === 1) {
-      singles.push(bin.items[0]);
-    } else {
-      clusters.push({
-        lon: bin.sumLon / bin.items.length,
-        lat: bin.sumLat / bin.items.length,
-        count: bin.items.length
-      });
-    }
-  }
-  return { singles, clusters };
+  return filterBySeverity(state.data.get(id) || [], state.minSeverity);
 }
 
 function buildClusterLayers(id, clusters) {
@@ -567,16 +525,12 @@ function deadReckonAircraft() {
     const rows = state.data.get(layerId);
     if (!rows || !rows.length) continue;
     for (const row of rows) {
-      const speed = Number(row.velocity); // metres/second
-      const track = Number(row.track);    // degrees clockwise from north
-      if (!Number.isFinite(speed) || speed <= 0 || !Number.isFinite(track)) continue;
-      if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
-      const dist = speed * dt; // metres travelled this tick
-      const rad = (track * Math.PI) / 180;
-      const cosLat = Math.cos((row.lat * Math.PI) / 180) || 1e-6;
-      row.lat += (dist * Math.cos(rad)) / 111_320;
-      row.lon += (dist * Math.sin(rad)) / (111_320 * cosLat);
-      moved = true;
+      const next = advancePosition(row, dt);
+      if (next.lat !== row.lat || next.lon !== row.lon) {
+        row.lat = next.lat;
+        row.lon = next.lon;
+        moved = true;
+      }
     }
   }
   if (moved) renderMap();
@@ -903,51 +857,6 @@ function buildIconLayer(id, data) {
     });
 }
 
-// Collect the present detail fields as [label, value] pairs. Labels and values
-// are rendered distinctly (muted uppercase label beside a bright value) so the
-// card reads as structured data rather than a wall of identical sentences.
-function detailRows(item) {
-  const rows = [];
-  const add = (label, value) => {
-    if (value !== null && value !== undefined && value !== "") rows.push([label, String(value)]);
-  };
-  add("Magnitude", item.magnitude);
-  add("CVSS", item.cvss);
-  if (item.epss) add("EPSS", `${(Number(item.epss) * 100).toFixed(1)}%`);
-  if (item.kev) add("Exploited", "Known exploited vulnerability");
-  add("Due", item.dueDate);
-  add("Chain", item.chain);
-  add("Address", item.address);
-  if (item.groupCount) add("Entries", Number(item.groupCount).toLocaleString());
-  add("Group", item.groupLabel);
-  add("MMSI", item.mmsi);
-  if (Number.isFinite(item.speedKnots)) add("Speed", `${Number(item.speedKnots).toFixed(1)} kn`);
-  if (Number.isFinite(item.course)) add("Course", `${Number(item.course).toFixed(1)}°`);
-  if (Number.isFinite(item.altitudeKm)) add("Altitude", `${Number(item.altitudeKm).toFixed(1)} km`);
-  add("SDN", item.sdnName);
-  add("SDN type", item.sdnType);
-  add("Country", item.country);
-  add("Region", item.region);
-  add("WPI", item.portNumber);
-  add("Harbor size", item.harborSize);
-  add("Harbor type", item.harborType);
-  add("NAVAREA", item.navArea);
-  add("UN/LOCODE", item.unloCode);
-  add("Chart", item.chartNumber);
-  if (item.facilities?.length) add("Facilities", item.facilities.join(", "));
-  if (item.programs?.length) add("Programs", item.programs.slice(0, 6).join(", "));
-  if (item.topPrograms?.length) add("Top programs", item.topPrograms.map((row) => `${row.name} (${row.count})`).join(", "));
-  if (item.topCountries?.length) add("Top countries", item.topCountries.map((row) => `${row.name} (${row.count})`).join(", "));
-  if (item.sampleEntries?.length) add("Sample", item.sampleEntries.map((row) => row.name).join("; "));
-  add("OFAC UID", item.uid);
-  if (Number.isFinite(item.akaCount)) add("Aliases", item.akaCount);
-  if (Number.isFinite(item.idCount)) add("IDs", item.idCount);
-  if (item.altitude) add("Altitude", `${Math.round(item.altitude).toLocaleString()} m`);
-  add("Confidence", item.confidence);
-  add("Source", item.source);
-  return rows;
-}
-
 function showDetail(item) {
   const color = palette.get(item.layer) || [255, 255, 255];
   const description = item.text || item.summary || item.status || "";
@@ -965,12 +874,6 @@ function showDetail(item) {
   els.detail.querySelector(".close-detail").addEventListener("click", () => {
     els.detail.hidden = true;
   });
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
-  }[char]));
 }
 
 async function refreshHealth() {
@@ -992,25 +895,11 @@ async function refreshHealth() {
 const FEED_LIMIT = 14;
 const FEED_PER_LAYER = 4;
 
-// Highest-severity, then most-recent first.
-function byPriority(a, b) {
-  return (Number(b.severity) || 1) - (Number(a.severity) || 1)
-    || String(b.time || "").localeCompare(String(a.time || ""));
-}
-
 function renderFeeds() {
-  // Aggregate the most notable currently-visible items across ALL enabled layers
-  // (respecting the severity filter), so the Live Desk reflects the active
-  // situational picture — not a fixed three layers, and never items from a layer
-  // that's toggled off. Cap each layer's contribution first so one noisy layer
-  // (e.g. an earthquake swarm) can't crowd out everything else.
-  const rows = [...state.enabled]
-    .flatMap((id) => visibleEntities(id)
-      .filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon))
-      .sort(byPriority)
-      .slice(0, FEED_PER_LAYER))
-    .sort(byPriority)
-    .slice(0, FEED_LIMIT);
+  // The Live Desk shows the most notable located items across all enabled layers
+  // (severity-filtered, never from a toggled-off layer), with each layer capped so
+  // one noisy layer can't crowd out the rest. See buildFeed in logic.js.
+  const rows = buildFeed(state.enabled, visibleEntities, { limit: FEED_LIMIT, perLayer: FEED_PER_LAYER });
 
   els.feedList.innerHTML = rows.length ? rows.map((row) => `
     <button class="feed-item" type="button" data-id="${escapeHtml(String(row.id))}" data-layer="${escapeHtml(String(row.layer))}">
@@ -1153,33 +1042,6 @@ function wireAccordion(container) {
   });
 }
 
-function kvRow(label, value) {
-  const text = Array.isArray(value) ? value.filter(Boolean).join(", ") : value;
-  return text ? `<div class="kv"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(text))}</span></div>` : "";
-}
-
-function extLink(url, label) {
-  return `<a class="result-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)} ↗</a>`;
-}
-
-// Build the collapsible detail body for a sanctions search hit from its
-// OpenSanctions/OFAC properties (country, programs, aliases, UID, notes).
-function sanctionDetail(row) {
-  const props = row.properties || {};
-  const parts = [];
-  const add = (label, value) => {
-    const text = Array.isArray(value) ? value.filter(Boolean).join(", ") : value;
-    if (text) parts.push(`<div class="kv"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(text))}</span></div>`);
-  };
-  add("Country", props.country);
-  add("Programs", props.program);
-  add("Aliases", props.alias);
-  add("OFAC UID", props.uid);
-  add("Notes", props.notes);
-  add("Source", row.datasets);
-  return parts.join("") || `<div class="kv"><span>Detail</span><span>No further detail available.</span></div>`;
-}
-
 async function runSanctionsSearch() {
   const q = document.querySelector("#sanctions-query").value.trim();
   const result = document.querySelector("#sanctions-result");
@@ -1231,17 +1093,6 @@ async function runIntelLookup() {
   }
 }
 
-// External reputation portals to pivot an IOC into, keyed by indicator kind.
-function intelLinks(kind, q) {
-  const e = encodeURIComponent(q);
-  const links = {
-    ip: [[`https://www.virustotal.com/gui/ip-address/${e}`, "VirusTotal"], [`https://www.abuseipdb.com/check/${e}`, "AbuseIPDB"], [`https://viz.greynoise.io/ip/${e}`, "GreyNoise"]],
-    domain: [[`https://www.virustotal.com/gui/domain/${e}`, "VirusTotal"], [`https://otx.alienvault.com/indicator/domain/${e}`, "AlienVault OTX"]],
-    url: [[`https://www.virustotal.com/gui/search/${e}`, "VirusTotal"]]
-  }[kind] || [];
-  return links.map(([url, label]) => extLink(url, label)).join("");
-}
-
 function renderWhois(payload) {
   const summary = payload.summary || {};
   const sanctions = payload.sanctions || {};
@@ -1256,26 +1107,6 @@ function renderWhois(payload) {
     ? `<p><strong>names checked</strong> ${escapeHtml(sanctions.checked.join(", "))}</p>`
     : "";
   return `${badge}${rows}${checked}<pre>${escapeHtml(JSON.stringify(payload.rdap, null, 2).slice(0, 1200))}</pre>`;
-}
-
-// Collapsible detail for one NVD CVE: CVSS score, publish date, full description,
-// a link to the NVD record, and the first few reference links.
-function cveDetail(row) {
-  const cve = row.cve || {};
-  const desc = (cve.descriptions || []).find((d) => d.lang === "en")?.value
-    || cve.descriptions?.[0]?.value || "No description available.";
-  const metric = cve.metrics?.cvssMetricV31?.[0] || cve.metrics?.cvssMetricV30?.[0] || cve.metrics?.cvssMetricV2?.[0];
-  const cvss = metric?.cvssData
-    ? `${metric.cvssData.baseScore} (${metric.cvssData.baseSeverity || metric.baseSeverity || "?"})`
-    : null;
-  const refs = (cve.references || []).slice(0, 4).map((ref) => extLink(ref.url, ref.url.replace(/^https?:\/\//, "").slice(0, 48)));
-  return `
-    ${kvRow("CVSS", cvss)}
-    ${kvRow("Published", cve.published ? cve.published.slice(0, 10) : "")}
-    <p class="result-desc">${escapeHtml(desc)}</p>
-    ${extLink(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id)}`, "Open on NVD")}
-    ${refs.length ? `<div class="result-refs">${refs.join("")}</div>` : ""}
-  `;
 }
 
 async function runCveSearch() {
@@ -1399,25 +1230,6 @@ function tickClock() {
     second: "2-digit",
     timeZoneName: "short"
   }).format(new Date());
-}
-
-// Trim an entity to the fields worth putting in an exported analyst snapshot.
-function snapshotEntity(item) {
-  return {
-    id: item.id,
-    layer: item.layer,
-    type: item.type,
-    name: item.name,
-    lat: item.lat,
-    lon: item.lon,
-    severity: item.severity,
-    ...(item.magnitude != null ? { magnitude: item.magnitude } : {}),
-    ...(item.confidence ? { confidence: item.confidence } : {}),
-    ...(item.time ? { time: item.time } : {}),
-    ...(item.source ? { source: item.source } : {}),
-    ...(item.url ? { url: item.url } : {}),
-    ...(item.summary || item.text ? { note: String(item.summary || item.text).slice(0, 300) } : {})
-  };
 }
 
 // Build a self-contained snapshot of the current situational picture: what is

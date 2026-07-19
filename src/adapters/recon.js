@@ -106,29 +106,60 @@ function containsAddress(dataset, address) {
   return dataset.some((row) => row.address?.toLowerCase() === address.toLowerCase());
 }
 
+// Format a wei BigInt as a trimmed ETH string (6 decimals is plenty for display,
+// and BigInt avoids float precision loss on large balances).
+function formatEth(wei) {
+  const ETH = 10n ** 18n;
+  const frac = (wei % ETH).toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
+  return frac ? `${wei / ETH}.${frac}` : String(wei / ETH);
+}
+
+async function fetchEthData(address) {
+  // Keyless public RPC — the previous host (eth.blockscout.com) went unreachable.
+  // eth_getBalance gives balance only (no tx history) but is reliable and keyless.
+  const rpc = await fetchJsonRetry("https://ethereum.publicnode.com", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [address, "latest"] })
+  });
+  if (rpc.error) throw new Error(rpc.error.message || "RPC error");
+  const wei = BigInt(rpc.result);
+  return {
+    address,
+    balanceWei: wei.toString(),
+    balanceEth: formatEth(wei),
+    source: "ethereum.publicnode.com · eth_getBalance"
+  };
+}
+
+// Chain data and the OFAC check are independent: a failed chain fetch must not
+// drop the sanctions result (an analyst still needs to know the address is
+// sanctioned even if the balance provider is down), so the chain fetch degrades
+// to { error } instead of rejecting the whole lookup.
 export async function btcLookup(address) {
-  const [addressData, ofac] = await Promise.all([
-    fetchJson(`https://blockstream.info/api/address/${encodeURIComponent(address)}`),
+  const [data, ofac] = await Promise.all([
+    fetchJsonRetry(`https://blockstream.info/api/address/${encodeURIComponent(address)}`)
+      .catch((error) => ({ error: error.message })),
     sanctionedCrypto().catch(() => [])
   ]);
   return {
     chain: "BTC",
     address,
     sanctioned: containsAddress(ofac, address),
-    data: addressData
+    data
   };
 }
 
 export async function ethLookup(address) {
-  const [addressData, ofac] = await Promise.all([
-    fetchJson(`https://eth.blockscout.com/api/v2/addresses/${encodeURIComponent(address)}`),
+  const [data, ofac] = await Promise.all([
+    fetchEthData(address).catch((error) => ({ error: error.message })),
     sanctionedCrypto().catch(() => [])
   ]);
   return {
     chain: "ETH",
     address,
     sanctioned: containsAddress(ofac, address),
-    data: addressData
+    data
   };
 }
 

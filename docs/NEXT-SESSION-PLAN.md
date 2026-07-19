@@ -1,5 +1,12 @@
 # Next-Session Plan — three remaining issues
 
+> **RESOLVED 2026-07-18.** All three fixed on branch `fix-eth-ports-frontend-tests` (95 tests green, was 78):
+> 1. **Frontend tests** — pure logic extracted to `public/logic.js` (100% cov), 15 tests in `test/frontend-logic.test.js`; `app.js` imports them back. Browser-smoked via Playwright (feed, detail card, sanctions accordion, layer toggle — no console errors). Approach matched the plan below.
+> 2. **ETH lookup** — blockscout confirmed dead (HTTP 000/TLS); `ethereum.publicnode.com` RPC `eth_getBalance` confirmed working. Swapped in via `fetchEthData`; both eth/btc lookups now degrade gracefully (chain error → `data.error`, OFAC result preserved). Verified live.
+> 3. **Ports cold-start** — bundled `public/data/ports-fallback.json` (417 L/M harbors, ~197 KB); `portsLayer` serves it with `meta.stale`+`meta.fallback` on cold NGA failure. **Gotcha:** NGA flaps 503↔200 every few seconds — needed a tight retry loop validating `size > 500 KB` to catch a good response.
+>
+> The original plan (unchanged) follows for reference.
+
 Written 2026-07-18. Fix these three, in this order:
 
 1. **Frontend has no automated tests** (`public/app.js`, ~1,200 lines) — a refactor there wouldn't be caught by CI.

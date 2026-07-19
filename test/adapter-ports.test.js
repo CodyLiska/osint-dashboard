@@ -74,6 +74,21 @@ test("portsLayer retries a transient 503 and then succeeds", async () => {
   }
 });
 
+test("portsLayer serves the bundled fallback on a cold failure (nothing cached, NGA down)", async () => {
+  clearCache(); // cold: no prior value to serve as stale
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response("down", { status: 503, statusText: "Service Unavailable" });
+  try {
+    const { entities, meta } = await portsLayer();
+    assert.ok(entities.length > 0, "fallback ports are rendered instead of throwing");
+    assert.equal(meta.stale, true);
+    assert.equal(meta.fallback, true);
+  } finally {
+    globalThis.fetch = original;
+    clearCache();
+  }
+});
+
 test("portsLayer caps output at PORTS_MAX_ITEMS", async () => {
   const restore = installJsonFetch(dataset());
   const saved = process.env.PORTS_MAX_ITEMS;

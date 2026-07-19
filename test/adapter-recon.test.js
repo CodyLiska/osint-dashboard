@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installFetch } from "./helpers/mock-fetch.js";
+import { clearCache } from "../src/lib/cache.js";
 import { sanctionedCrypto, btcLookup, ethLookup, cryptoLayer, sanctionsLayer, sanctionsSearch, cveSearch } from "../src/adapters/recon.js";
 
 const SDN_URL = "treasury.gov/ofac/downloads/sdn.xml";
@@ -39,12 +40,15 @@ const entitySdnXml = `<sdnList>
   </sdnEntry>
 </sdnList>`;
 
+// A valid eth_getBalance RPC reply (0x1bc16d674ec80000 wei = 2 ETH) unless overridden.
+const ethRpc = (result = "0x1bc16d674ec80000") => ({ jsonrpc: "2.0", id: 1, result });
+
 // Resolver: SDN url -> given xml; other sanctions feeds -> empty; chain APIs / NVD -> JSON.
-function routes({ sdn = "", btc = {}, eth = {}, nvd = {} } = {}) {
+function routes({ sdn = "", btc = {}, eth = ethRpc(), nvd = {} } = {}) {
   return (url) => {
     if (url.includes(SDN_URL)) return sdn;
     if (url.includes("blockstream.info")) return btc;
-    if (url.includes("eth.blockscout.com")) return eth;
+    if (url.includes("ethereum.publicnode.com")) return eth;
     if (url.includes("services.nvd.nist.gov")) return nvd;
     return ""; // consolidated / UN / UK feeds: empty
   };
@@ -78,14 +82,38 @@ test("btcLookup flags an address present in the OFAC list (case-insensitive)", a
   }
 });
 
-test("ethLookup flags a sanctioned ETH address", async () => {
-  const restore = installFetch(routes({ sdn: cryptoSdnXml, eth: { hash: "x" } }));
+test("ethLookup flags a sanctioned ETH address and parses the RPC balance", async () => {
+  const restore = installFetch(routes({ sdn: cryptoSdnXml }));
   try {
     const hit = await ethLookup("0xEvilEthAddr");
     assert.equal(hit.sanctioned, true);
     assert.equal(hit.chain, "ETH");
+    assert.equal(hit.data.balanceEth, "2"); // 0x1bc16d674ec80000 wei = 2 ETH
+    assert.equal(hit.data.balanceWei, "2000000000000000000");
   } finally {
     restore();
+  }
+});
+
+test("ethLookup keeps the OFAC result when the chain RPC fails", async () => {
+  // Chain fetch throws, OFAC data still available — sanctioned must survive, and
+  // the chain error is surfaced in data rather than rejecting the whole lookup.
+  clearCache();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("ethereum.publicnode.com")) {
+      return new Response("boom", { status: 503, statusText: "Service Unavailable" });
+    }
+    return new Response(cryptoSdnXml, { status: 200 });
+  };
+  try {
+    const hit = await ethLookup("0xEvilEthAddr");
+    assert.equal(hit.sanctioned, true); // OFAC check unaffected by the chain outage
+    assert.ok(hit.data.error, "chain error is surfaced in data");
+    assert.equal(hit.data.balanceEth, undefined);
+  } finally {
+    globalThis.fetch = original;
+    clearCache();
   }
 });
 

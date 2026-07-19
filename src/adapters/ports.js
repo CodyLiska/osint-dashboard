@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { cachedResilient } from "../lib/cache.js";
 import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
@@ -5,6 +6,14 @@ import { entity, finiteCoordinate } from "../lib/normalize.js";
 // The NGA World Port Index endpoint intermittently 503s or stalls; fetchJsonRetry
 // adds a timeout + retry, and cachedResilient serves the last-good data on failure.
 const wpiUrl = "https://msi.nga.mil/api/publications/world-port-index?output=json";
+
+// Bundled cold-start fallback: cachedResilient can only serve stale data once
+// something has been fetched, so a cold boot while NGA is 503-ing has nothing to
+// serve and would throw. This static subset (Large + Medium harbors from the WPI,
+// public-domain U.S. Gov data) keeps the layer populated in that case.
+const fallbackPorts = JSON.parse(
+  readFileSync(new URL("../../public/data/ports-fallback.json", import.meta.url), "utf8")
+).ports || [];
 
 function sizeRank(size) {
   return { V: 1, S: 2, M: 3, L: 4 }[String(size || "").toUpperCase()] || 1;
@@ -109,7 +118,14 @@ function portEntity(port) {
 }
 
 export async function portsLayer(bounds = {}) {
-  const result = await cachedResilient("nga:wpi", 24 * 60 * 60_000, () => fetchJsonRetry(wpiUrl));
+  // On a cold failure (nothing cached + NGA down) cachedResilient throws; fall
+  // back to the bundled subset and flag it stale so the UI shows the ⚠ indicator.
+  let result;
+  try {
+    result = await cachedResilient("nga:wpi", 24 * 60 * 60_000, () => fetchJsonRetry(wpiUrl));
+  } catch {
+    result = { value: { ports: fallbackPorts }, cached: true, stale: true, fallback: true };
+  }
   const allPorts = result.value.ports || [];
   const normalizedBounds = normalizeBounds(bounds);
   const max = Number(process.env.PORTS_MAX_ITEMS || 1200);
@@ -137,7 +153,8 @@ export async function portsLayer(bounds = {}) {
       sizeCounts,
       viewportAware: Boolean(normalizedBounds),
       cached: result.cached,
-      stale: Boolean(result.stale)
+      stale: Boolean(result.stale),
+      fallback: Boolean(result.fallback)
     }
   };
 }
