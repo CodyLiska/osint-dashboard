@@ -43,11 +43,21 @@ const entitySdnXml = `<sdnList>
 // A valid eth_getBalance RPC reply (0x1bc16d674ec80000 wei = 2 ETH) unless overridden.
 const ethRpc = (result = "0x1bc16d674ec80000") => ({ jsonrpc: "2.0", id: 1, result });
 
+// A valid Ethplorer getAddressInfo reply: ETH balance + N ERC-20 tokens.
+const ethplorerInfo = (balance = 2, tokenCount = 1) => ({
+  ETH: { balance },
+  tokens: Array.from({ length: tokenCount }, (_, i) => ({
+    tokenInfo: { symbol: `TK${i}`, name: `Token ${i}`, decimals: "18", address: `0xtok${i}` },
+    rawBalance: "1000000000000000000"
+  }))
+});
+
 // Resolver: SDN url -> given xml; other sanctions feeds -> empty; chain APIs / NVD -> JSON.
-function routes({ sdn = "", btc = {}, eth = ethRpc(), nvd = {} } = {}) {
+function routes({ sdn = "", btc = {}, eth = ethRpc(), ethplorer = ethplorerInfo(), nvd = {} } = {}) {
   return (url) => {
     if (url.includes(SDN_URL)) return sdn;
     if (url.includes("blockstream.info")) return btc;
+    if (url.includes("api.ethplorer.io")) return ethplorer;
     if (url.includes("ethereum.publicnode.com")) return eth;
     if (url.includes("services.nvd.nist.gov")) return nvd;
     return ""; // consolidated / UN / UK feeds: empty
@@ -82,26 +92,52 @@ test("btcLookup flags an address present in the OFAC list (case-insensitive)", a
   }
 });
 
-test("ethLookup flags a sanctioned ETH address and parses the RPC balance", async () => {
-  const restore = installFetch(routes({ sdn: cryptoSdnXml }));
+test("ethLookup flags a sanctioned ETH address and returns Ethplorer balance + tokens", async () => {
+  const restore = installFetch(routes({ sdn: cryptoSdnXml, ethplorer: ethplorerInfo(2, 3) }));
   try {
     const hit = await ethLookup("0xEvilEthAddr");
     assert.equal(hit.sanctioned, true);
     assert.equal(hit.chain, "ETH");
-    assert.equal(hit.data.balanceEth, "2"); // 0x1bc16d674ec80000 wei = 2 ETH
-    assert.equal(hit.data.balanceWei, "2000000000000000000");
+    assert.equal(hit.data.balanceEth, 2);
+    assert.equal(hit.data.tokenCount, 3);
+    assert.equal(hit.data.tokens[0].balance, 1); // rawBalance 1e18 / 1e18 decimals
+    assert.match(hit.data.source, /ethplorer/);
   } finally {
     restore();
   }
 });
 
-test("ethLookup keeps the OFAC result when the chain RPC fails", async () => {
-  // Chain fetch throws, OFAC data still available — sanctioned must survive, and
-  // the chain error is surfaced in data rather than rejecting the whole lookup.
+test("ethLookup falls back to the RPC balance when Ethplorer is down", async () => {
   clearCache();
   const original = globalThis.fetch;
   globalThis.fetch = async (url) => {
-    if (String(url).includes("ethereum.publicnode.com")) {
+    const u = String(url);
+    if (u.includes("api.ethplorer.io")) return new Response("down", { status: 503, statusText: "Service Unavailable" });
+    if (u.includes("ethereum.publicnode.com")) {
+      return new Response(JSON.stringify(ethRpc()), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(cryptoSdnXml, { status: 200 });
+  };
+  try {
+    const hit = await ethLookup("0xEvilEthAddr");
+    assert.equal(hit.data.balanceEth, 2);           // from the RPC fallback (2 ETH)
+    assert.equal(hit.data.balanceWei, "2000000000000000000");
+    assert.match(hit.data.source, /publicnode/);
+    assert.ok(hit.data.note, "notes that token data is unavailable");
+  } finally {
+    globalThis.fetch = original;
+    clearCache();
+  }
+});
+
+test("ethLookup keeps the OFAC result when BOTH chain sources fail", async () => {
+  // Both Ethplorer and the RPC fallback throw; OFAC data still available — the
+  // sanctions verdict must survive and the chain error is surfaced in data.
+  clearCache();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("api.ethplorer.io") || u.includes("ethereum.publicnode.com")) {
       return new Response("boom", { status: 503, statusText: "Service Unavailable" });
     }
     return new Response(cryptoSdnXml, { status: 200 });

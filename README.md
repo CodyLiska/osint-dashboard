@@ -26,7 +26,7 @@ No package install is required for the first version. The app uses a small Node 
 - Normalized `/api/layers/:layer` routes returning `{ entities, meta }`.
 - Source-health telemetry at `/api/health`.
 - Telegram public-preview ingestion from `t.me/s/<channel>` with multilingual place matching.
-- BTC lookups through Blockstream and ETH lookups through Blockscout.
+- BTC lookups through Blockstream and ETH balance lookups through a keyless Ethereum public RPC (`ethereum.publicnode.com`).
 - OFAC sanctioned crypto-address cross-check using the 0xB10C mirror.
 - OpenSanctions search tab for persons, organizations, vessels, and aircraft.
 - NVD CVE keyword search over a rolling 30-day window.

@@ -162,7 +162,7 @@ async function handleApi(req, res, url) {
     if (url.pathname === "/api/crypto/eth") {
       const address = url.searchParams.get("address");
       if (!address) return sendJson(res, 400, { error: "address required" });
-      const data = await withHealth("crypto-eth", "Blockscout ETH", () => ethLookup(address));
+      const data = await withHealth("crypto-eth", "Ethereum public RPC", () => ethLookup(address));
       return sendJson(res, 200, data);
     }
 

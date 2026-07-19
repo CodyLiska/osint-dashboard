@@ -106,17 +106,39 @@ function containsAddress(dataset, address) {
   return dataset.some((row) => row.address?.toLowerCase() === address.toLowerCase());
 }
 
-// Format a wei BigInt as a trimmed ETH string (6 decimals is plenty for display,
-// and BigInt avoids float precision loss on large balances).
+// Format a wei BigInt as a trimmed ETH number (6 decimals is plenty for display;
+// BigInt avoids float precision loss on the integer part of large balances).
 function formatEth(wei) {
   const ETH = 10n ** 18n;
   const frac = (wei % ETH).toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
-  return frac ? `${wei / ETH}.${frac}` : String(wei / ETH);
+  return Number(frac ? `${wei / ETH}.${frac}` : String(wei / ETH));
 }
 
-async function fetchEthData(address) {
-  // Keyless public RPC — the previous host (eth.blockscout.com) went unreachable.
-  // eth_getBalance gives balance only (no tx history) but is reliable and keyless.
+// Primary ETH source: Ethplorer (keyless demo key) — richer than a bare balance,
+// returning ERC-20 token holdings too. It returns HTTP 200 with an { error }
+// body on bad input, so that is turned into a throw for the caller to handle.
+async function fetchEthplorer(address) {
+  const info = await fetchJsonRetry(`https://api.ethplorer.io/getAddressInfo/${encodeURIComponent(address)}?apiKey=freekey`);
+  if (info.error) throw new Error(info.error.message || `Ethplorer error ${info.error.code}`);
+  const tokens = (info.tokens || []).map((token) => {
+    const decimals = Number(token.tokenInfo?.decimals);
+    const balance = token.rawBalance != null && Number.isFinite(decimals)
+      ? Number(token.rawBalance) / 10 ** decimals
+      : token.balance;
+    return { symbol: token.tokenInfo?.symbol, name: token.tokenInfo?.name, balance, contract: token.tokenInfo?.address };
+  });
+  return {
+    address,
+    balanceEth: info.ETH?.balance,
+    tokenCount: tokens.length,
+    tokens: tokens.slice(0, 25),
+    source: "ethplorer.io · getAddressInfo"
+  };
+}
+
+// Fallback ETH source: keyless public RPC. Balance only (no tokens), but reliable
+// when Ethplorer's shared demo key throttles or the host is down.
+async function fetchEthBalanceRpc(address) {
   const rpc = await fetchJsonRetry("https://ethereum.publicnode.com", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -124,12 +146,17 @@ async function fetchEthData(address) {
   });
   if (rpc.error) throw new Error(rpc.error.message || "RPC error");
   const wei = BigInt(rpc.result);
-  return {
-    address,
-    balanceWei: wei.toString(),
-    balanceEth: formatEth(wei),
-    source: "ethereum.publicnode.com · eth_getBalance"
-  };
+  return { address, balanceWei: wei.toString(), balanceEth: formatEth(wei), source: "ethereum.publicnode.com · eth_getBalance" };
+}
+
+async function fetchEthData(address) {
+  try {
+    return await fetchEthplorer(address);
+  } catch (ethplorerError) {
+    // Ethplorer down/throttled — degrade to balance-only rather than failing.
+    const rpc = await fetchEthBalanceRpc(address);
+    return { ...rpc, note: `token data unavailable (ethplorer: ${ethplorerError.message})` };
+  }
 }
 
 // Chain data and the OFAC check are independent: a failed chain fetch must not
