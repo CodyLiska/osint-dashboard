@@ -26,6 +26,7 @@ Keep it LAN-only: the `/api/intel/*` and `/api/crypto/*` routes proxy external s
 Active development. 7 of 8 README build phases done (2026-07-17): gazetteer + confidence (1), clustering + severity filters (2), per-layer polling (3), localStorage persistence (4), WHOIS/RDAP + OpenSanctions cross-check (5), versioned JSON datasets (6), snapshot export (8). All uncommitted on `main`.
 
 Remaining / next:
+- **Historical persistence (proposed, plan drafted 2026-07-19):** `docs/PLAN-persistence.md` — optional `node:sqlite` store (zero npm deps) for "what changed"/trends/durable-alert history. Event-shaped layers only (`seismic,weather,cyber,news,conflict,telegram`) via upsert+close-absentees reconcile; fire-and-forget after `sendJson` at `handleLayer`; fully optional (`OSIRIS_DB_PATH` unset = today's behavior); needs a non-root-writable Docker volume. NOT started — awaiting sign-off; log a decisions-log entry on execution. Candidate source catalog: `docs/FUTURE-DATA-SOURCES.md`.
 - README phase 7: authenticated adapters for additional higher-quota sources (open-ended; needs real API keys). `.env.example` documents all optional keys (FREE/PAID tagged).
 - Dead data to resolve: `staticLayers` no longer holds the unused `ports`/`news`/`space` arrays (they had no `staticKey`); confirm they should stay dropped.
 - Still NOT promoted/deployed: when feature-stable, relocate to `06_Production_Apps/Homelab_Sever/` and deploy per `docs/DEPLOY.md`.
