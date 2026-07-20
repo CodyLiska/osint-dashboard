@@ -16,6 +16,21 @@ Nothing here is committed to. This is a planning catalog — drill into any row 
 
 ---
 
+## Status (updated 2026-07-19)
+
+**21 sources implemented across 4 batches** — see the `DONE 2026-07-19` markers on the rows below. 2 deferred (`ransomware.live` API relocated 302→404; `GPSJam` data host moved, path 404s).
+
+- **Batch 1 (core keyless):** GDELT, abuse.ch (ThreatFox / URLhaus / Feodo), Shodan InternetDB, CelesTrak.
+- **Batch 2 (hazards + conflict / cyber-IP):** GDACS, UCDP GED (optional-keyed), NWS warning polygons; Tor exit, Spamhaus DROP, MalwareBazaar (optional-keyed), crt.sh.
+- **Batch 3 (internet health / cyber-deepening):** RIPEstat, IODA, Cloudflare Radar (optional-keyed); URLScan.io, Ransomwhere, CISA ICS advisories, VulnCheck (optional-keyed).
+- **Batch 4 (air domain):** adsb.lol military aircraft (upgraded the `military-air` layer off the OpenSky heuristic).
+
+Cross-cutting **Historical persistence (`node:sqlite`)** is also DONE (with the read API + "What Changed" panel). Still open cross-cutting: alert-rules engine, cross-source correlation, MITRE ATT&CK mapping.
+
+Reusable infra unlocked along the way: the layer registry (one row + one adapter per source), the `/api/intel/ip` and `/api/intel/domain` fan-outs, the `deck.PolygonLayer` render path (NWS), the two-body orbit propagator, and the shared country-centroid lookup (IODA / Cloudflare).
+
+---
+
 ## 1. Map-layer sources (render on the map)
 
 These wire in like existing layers: one adapter normalizing to `{ entities, meta }`, plus
@@ -29,7 +44,7 @@ These wire in like existing layers: one adapter normalizing to `{ entities, meta
 | **GDACS**               | Global disasters        | `gdacs.org` (GeoJSON/RSS)             | none     | Open                             | Good                                       | DONE 2026-07-19 as a keyless map layer (`gdacs.js`); alertlevel→severity, stable eventid, persist:true. Floods/quakes/cyclones/droughts/volcanoes                                                                                                                                    | Medium                       |
 | **NOAA / NWS**          | Severe weather (US)     | `api.weather.gov`                     | none     | US Gov public domain             | Good                                       | DONE 2026-07-19 as a keyless POLYGON layer (`nws.js`), the app's first non-point deck layer. Keeps alerts with real geometry + centroid for cluster/feed/detail. Severe-weather warning polygons (CONUS)                                                                             | Medium                       |
 | **CelesTrak**           | Satellites (orbital)    | `celestrak.org` (TLE/JSON)            | none     | Open, attribution                | Good                                       | DONE 2026-07-19 as the keyless space-layer satellite fallback. CelesTrak serves orbital _elements_, not positions, so `src/lib/orbit.js` propagates them with a zero-dep two-body model (approximate; validated <0.2deg vs operational GEO sats). Used when `N2YO_API_KEY` is absent | Medium                       |
-| **adsb.fi / adsb.lol**  | Military aircraft       | `api.adsb.fi`, `api.adsb.lol`         | none     | Open (community)                 | Medium — community-run, best-effort uptime | Free unfiltered ADS-B with real military coverage vs. the current OpenSky hex-range heuristic (misses ADS-B-off / civilian-squawking mil)                                                                                                                                            | Medium                       |
+| **adsb.fi / adsb.lol**  | Military aircraft       | `api.adsb.fi`, `api.adsb.lol`         | none     | Open (community)                 | Medium — community-run, best-effort uptime | DONE 2026-07-19 via adsb.lol (`adsb.js`) as the `military-air` source with OpenSky fallback; adds real aircraft types + better coverage. NOTE: adsb.fi `/v2/mil` 404s now; adsb.lol is primary                                                                                                                                            | Medium                       |
 | **Feodo Tracker**       | Botnet C2 IPs           | `feodotracker.abuse.ch`               | none     | CC0                              | Good                                       | DONE 2026-07-19 as an IP-intel C2 enricher (`feodoLookup` in `intel.js`, in the `/api/intel/ip` fan-out). Keyless blocklist has no coords + few entries, so it flags a queried IP as a known C2 rather than being a map layer                                                        | Low–Medium                   |
 | **OpenAQ**              | Air quality             | `api.openaq.org`                      | free-reg | Open                             | Good                                       | Global air-quality stations. Cheap environmental / CBRN-adjacent signal                                                                                                                                                                                                              | Medium                       |
 | **Submarine Cable Map** | Internet infrastructure | TeleGeography dataset                 | none     | Attribution (check terms)        | Medium — dataset, not a live API           | Submarine cable routes + landing points. Thematically pairs with the maritime chokepoints layer                                                                                                                                                                                      | Medium                       |
@@ -63,7 +78,7 @@ These span integration types, so an **Integration** column is added.
 
 | Source          | Endpoint                                | Key      | License              | Reliability                 | Integration    | What it adds                                                                                                                    | Effort     |
 | --------------- | --------------------------------------- | -------- | -------------------- | --------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **GPSJam**      | `gpsjam.org` (daily GeoJSON)            | none     | Open                 | Good                        | layer          | Daily GPS interference / jamming map, derived from aggregated ADS-B. Highly conflict-relevant — jamming clusters over war zones | Medium     |
+| **GPSJam**      | `gpsjam.org` (daily GeoJSON)            | none     | Open                 | Good                        | layer          | DEFERRED 2026-07-19: data host moved (gpsjam.org -> gpsjam.obliscence.com) and the `/data/*-h3_4.json` path 404s on both; real data URL not discoverable without JS-tracing. Revisit | Medium     |
 | **APRS.fi**     | `api.aprs.fi`                           | free-reg | Free non-commercial  | Good                        | layer          | Live amateur-radio station positions (APRS-IS). Ground-based emitter presence                                                   | Medium     |
 | **SatNOGS**     | `network.satnogs.org`, `db.satnogs.org` | none     | Open                 | Good                        | layer / recon  | Open satellite ground-station network + radio observation DB. Pairs with the satellite layer                                    | Medium     |
 | **FCC ULS**     | `fcc.gov` ULS (bulk / query)            | none     | US Gov public domain | Good                        | recon / enrich | US transmitter/callsign license DB — resolve a callsign or licensee to location                                                 | Low–Medium |
@@ -247,10 +262,10 @@ new _visual_ dimension (change detection, SAR through cloud/night, nighttime-lig
 Worth weighing against the source list — a few of these make the data you _already_ have
 far more complete than any one new feed would.
 
-- **Historical persistence (optional SQLite)** — cache/health are in-memory and reset on
-  restart. A lightweight store unlocks trends, a timeline scrubber, and "what changed since
-  yesterday." Arguably the single highest-impact item here. Watch the zero-dep ethos —
-  Node's built-in `node:sqlite` (or flat JSONL) keeps it dependency-free.
+- **Historical persistence (optional SQLite)** — DONE 2026-07-19. Built on `node:sqlite`
+  (zero-dep): `src/lib/persist.js` reconcile store, `GET /api/changes` + `/api/history/:layer`,
+  and the frontend "What Changed" panel. Optional via `OSIRIS_DB_PATH`; event-shaped layers
+  (seismic/weather/cyber/news/telegram/conflict/gdacs/ioda) feed it.
 - **Geofence + keyword alert rules engine** — build on the existing Slack notify: "alert if
   any military aircraft enters this bbox" / "any sanctioned vessel in this strait."
 - **Cross-source correlation** — link an IP from a cyber feed → a sanctions hit → a geolocation.
@@ -258,7 +273,7 @@ far more complete than any one new feed would.
 
 ---
 
-## Suggested first batch
+## Suggested first batch — COMPLETE (all four shipped 2026-07-19)
 
 If picking a starting set, bias to keyless + high map/recon impact:
 

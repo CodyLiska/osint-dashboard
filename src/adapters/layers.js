@@ -1,4 +1,5 @@
-import { aviationLayer, militaryAircraftLayer } from "./opensky.js";
+import { aviationLayer } from "./opensky.js";
+import { militaryAircraftLayer } from "./adsb.js";
 import { firesLayer } from "./firms.js";
 import { eonetLayer } from "./eonet.js";
 import { seismicLayer } from "./usgs.js";
@@ -31,7 +32,7 @@ import { cloudflareRadarLayer } from "./cloudflare.js";
 //                (see the checklist in docs/PLAN-persistence.md before flipping it)
 const LAYERS = [
   { id: "aviation", sourceName: "OpenSky Network", load: (b) => aviationLayer(b), persist: false },
-  { id: "military-air", sourceName: "OpenSky (military)", load: (b) => militaryAircraftLayer(b), persist: false },
+  { id: "military-air", sourceName: "adsb.lol / OpenSky (military)", load: (b) => militaryAircraftLayer(b), persist: false },
   { id: "fires", sourceName: "NASA FIRMS", load: (b) => firesLayer(b), persist: false },
   { id: "weather", sourceName: "NASA EONET", load: (b) => eonetLayer("weather", ["severeStorms", "floods", "volcanoes"], b), persist: true },
   { id: "ports", sourceName: "NGA World Port Index", load: (b) => portsLayer(b), persist: false },
