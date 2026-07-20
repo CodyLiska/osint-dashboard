@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installFetch } from "./helpers/mock-fetch.js";
-import { feodoLookup, ipIntel, sanctionsCrossCheck, shodanInternetDb, threatFoxLookup, urlhausHostLookup, whoisLookup } from "../src/adapters/intel.js";
+import { crtShLookup, domainIntel, feodoLookup, ipIntel, malwareBazaarLookup, sanctionsCrossCheck, shodanInternetDb, spamhausDropLookup, threatFoxLookup, torExitLookup, urlhausHostLookup, whoisLookup } from "../src/adapters/intel.js";
 import { clearCache } from "../src/lib/cache.js";
 
 const SDN_URL = "treasury.gov/ofac/downloads/sdn.xml";
@@ -299,5 +299,146 @@ test("ipIntel includes ThreatFox + URLhaus, and they degrade gracefully without 
   } finally {
     restore();
     if (prev !== undefined) process.env.ABUSE_CH_AUTH_KEY = prev;
+  }
+});
+
+test("torExitLookup flags an IP present in the bulk exit list", async () => {
+  const restore = installFetch((url) => url.includes("torproject.org")
+    ? "171.25.193.25\n80.67.167.81\n198.98.51.189" : "");
+  try {
+    const hit = await torExitLookup("80.67.167.81");
+    assert.equal(hit.source, "Tor Exit Nodes");
+    assert.equal(hit.data.torExit, true);
+    const miss = await torExitLookup("8.8.8.8");
+    assert.equal(miss.data.torExit, false);
+  } finally {
+    restore();
+  }
+});
+
+test("spamhausDropLookup flags an IP inside a listed CIDR (and clears one outside)", async () => {
+  const drop = [
+    '{"cidr":"1.10.16.0/20","sblid":"SBL256894","rir":"apnic"}',
+    '{"cidr":"2.56.0.0/16","sblid":"SBL400000","rir":"ripe"}',
+    '{"metadata":"footer line without a cidr"}'
+  ].join("\n");
+  const restore = installFetch((url) => url.includes("spamhaus.org") ? drop : "");
+  try {
+    const inside = await spamhausDropLookup("1.10.20.5"); // within 1.10.16.0/20
+    assert.equal(inside.data.listed, true);
+    assert.equal(inside.data.cidr, "1.10.16.0/20");
+    assert.equal(inside.data.sblid, "SBL256894");
+    const outside = await spamhausDropLookup("8.8.8.8");
+    assert.equal(outside.data.listed, false);
+    const edge = await spamhausDropLookup("1.10.32.0"); // just past the /20 boundary
+    assert.equal(edge.data.listed, false);
+  } finally {
+    restore();
+  }
+});
+
+test("ipIntel includes Tor and Spamhaus results in the fan-out", async () => {
+  const restore = installFetch((url) => {
+    if (url.includes("torproject.org")) return "9.9.9.9";
+    if (url.includes("spamhaus.org")) return '{"cidr":"9.9.9.0/24","sblid":"SBL1"}';
+    if (url.includes("internetdb.shodan.io")) return { ip: "9.9.9.9", ports: [], vulns: [], tags: [], hostnames: [], cpes: [] };
+    if (url.includes("feodotracker.abuse.ch")) return [];
+    return "";
+  });
+  try {
+    const res = await ipIntel("9.9.9.9");
+    assert.ok(res.results.find((r) => r.source === "Tor Exit Nodes" && r.data.torExit === true));
+    assert.ok(res.results.find((r) => r.source === "Spamhaus DROP" && r.data.listed === true));
+  } finally {
+    restore();
+  }
+});
+
+test("malwareBazaarLookup returns sample metadata when the abuse.ch key is set", async () => {
+  const prev = process.env.ABUSE_CH_AUTH_KEY;
+  process.env.ABUSE_CH_AUTH_KEY = "test-key";
+  const restore = installFetch((url) => url.includes("mb-api.abuse.ch")
+    ? { query_status: "ok", data: [{ sha256_hash: "abc123", file_name: "evil.exe", file_type: "exe", file_size: 4096, signature: "Emotet", tags: ["exe", "Emotet"], first_seen: "2026-06-01" }] }
+    : "");
+  try {
+    const res = await malwareBazaarLookup("abc123");
+    assert.equal(res.source, "MalwareBazaar");
+    assert.equal(res.data.found, true);
+    assert.equal(res.data.signature, "Emotet");
+    assert.equal(res.data.fileName, "evil.exe");
+  } finally {
+    restore();
+    if (prev === undefined) delete process.env.ABUSE_CH_AUTH_KEY; else process.env.ABUSE_CH_AUTH_KEY = prev;
+  }
+});
+
+test("malwareBazaarLookup reports found:false for an unknown hash", async () => {
+  const prev = process.env.ABUSE_CH_AUTH_KEY;
+  process.env.ABUSE_CH_AUTH_KEY = "test-key";
+  const restore = installFetch((url) => url.includes("mb-api.abuse.ch") ? { query_status: "hash_not_found" } : "");
+  try {
+    const res = await malwareBazaarLookup("deadbeef");
+    assert.equal(res.data.found, false);
+    assert.equal(res.data.status, "hash_not_found");
+  } finally {
+    restore();
+    if (prev === undefined) delete process.env.ABUSE_CH_AUTH_KEY; else process.env.ABUSE_CH_AUTH_KEY = prev;
+  }
+});
+
+test("malwareBazaarLookup rejects with 400 when no abuse.ch key is configured", async () => {
+  const prev = process.env.ABUSE_CH_AUTH_KEY;
+  delete process.env.ABUSE_CH_AUTH_KEY;
+  const restore = installFetch(() => "");
+  try {
+    await assert.rejects(malwareBazaarLookup("abc"), (err) => {
+      assert.equal(err.status, 400);
+      assert.match(err.message, /ABUSE_CH_AUTH_KEY/);
+      return true;
+    });
+  } finally {
+    restore();
+    if (prev !== undefined) process.env.ABUSE_CH_AUTH_KEY = prev;
+  }
+});
+
+test("crtShLookup extracts unique subdomains and drops wildcards/non-matches", async () => {
+  const restore = installFetch((url) => url.includes("crt.sh")
+    ? [
+        { name_value: "github.com\nwww.github.com" },
+        { name_value: "*.github.com" },        // wildcard → dropped
+        { name_value: "api.github.com" },
+        { name_value: "www.github.com" },      // duplicate
+        { name_value: "evil.example.com" }     // different domain → dropped
+      ]
+    : "");
+  try {
+    const res = await crtShLookup("github.com");
+    assert.equal(res.source, "crt.sh");
+    assert.deepEqual(res.data.subdomains, ["api.github.com", "github.com", "www.github.com"]);
+    assert.equal(res.data.count, 3);
+  } finally {
+    restore();
+  }
+});
+
+test("domainIntel fans out to crt.sh (keyless) even when the keyed sources are unconfigured", async () => {
+  const prevVt = process.env.VIRUSTOTAL_API_KEY;
+  const prevAbuse = process.env.ABUSE_CH_AUTH_KEY;
+  delete process.env.VIRUSTOTAL_API_KEY;
+  delete process.env.ABUSE_CH_AUTH_KEY;
+  const restore = installFetch((url) => url.includes("crt.sh") ? [{ name_value: "a.evil.test" }] : "");
+  try {
+    const res = await domainIntel("evil.test");
+    assert.equal(res.type, "domain");
+    const crt = res.results.find((r) => r.source === "crt.sh");
+    assert.ok(crt && crt.data.count === 1, "crt.sh result is present with data");
+    // the keyed sources surface as error entries, not failures of the whole lookup
+    assert.ok(res.results.find((r) => r.source === "VirusTotal" && r.error));
+    assert.ok(res.results.find((r) => r.source === "URLhaus" && r.error));
+  } finally {
+    restore();
+    if (prevVt !== undefined) process.env.VIRUSTOTAL_API_KEY = prevVt;
+    if (prevAbuse !== undefined) process.env.ABUSE_CH_AUTH_KEY = prevAbuse;
   }
 });

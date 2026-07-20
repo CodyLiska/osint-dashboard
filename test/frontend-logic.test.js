@@ -149,6 +149,7 @@ test("intelLinks returns the right pivot portals per indicator kind", () => {
   assert.match(intelLinks("ip", "1.2.3.4"), /viz\.greynoise\.io/);
   assert.match(intelLinks("ip", "1.2.3.4"), /shodan\.io\/host\/1\.2\.3\.4/);
   assert.match(intelLinks("domain", "evil.test"), /otx\.alienvault\.com/);
+  assert.match(intelLinks("hash", "abc123"), /bazaar\.abuse\.ch\/sample\/abc123/);
   assert.equal(intelLinks("whois", "x"), ""); // no pivot links for whois
 });
 

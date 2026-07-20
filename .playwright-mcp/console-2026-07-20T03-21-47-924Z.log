@@ -1,0 +1,13 @@
+[  315087ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4183/api/layers/nws:0
+[  315089ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4183/api/health:0
+[  315094ms] [ERROR] deck: update of PolygonLayer({id: 'nws-polygons'}): invalid polygon Error: invalid polygon
+    at B9 (https://unpkg.com/deck.gl@9.0.33/dist.min.js:2710:3836)
+    at tg (https://unpkg.com/deck.gl@9.0.33/dist.min.js:2710:4686)
+    at Vu._getPaths (https://unpkg.com/deck.gl@9.0.33/dist.min.js:2822:6886)
+    at Vu.updateState (https://unpkg.com/deck.gl@9.0.33/dist.min.js:2822:6650)
+    at Vu._update (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1785:29078)
+    at Mn._updateLayer (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707:8819)
+    at Mn._updateSublayersRecursively (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707:8323)
+    at Mn._updateLayers (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707:7882)
+    at Mn.setLayers (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707:7044)
+    at Mn.updateLayers (https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707:7167) @ https://unpkg.com/deck.gl@9.0.33/dist.min.js:1707

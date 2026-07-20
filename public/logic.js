@@ -13,7 +13,7 @@ export function escapeHtml(value) {
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt"]);
+export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt", "gdacs", "ucdp"]);
 export const CLUSTER_MIN_POINTS = 15;
 export const CLUSTER_MAX_ZOOM = 5;
 
@@ -181,7 +181,8 @@ export function intelLinks(kind, q) {
   const links = {
     ip: [[`https://www.virustotal.com/gui/ip-address/${e}`, "VirusTotal"], [`https://www.abuseipdb.com/check/${e}`, "AbuseIPDB"], [`https://viz.greynoise.io/ip/${e}`, "GreyNoise"], [`https://www.shodan.io/host/${e}`, "Shodan"]],
     domain: [[`https://www.virustotal.com/gui/domain/${e}`, "VirusTotal"], [`https://otx.alienvault.com/indicator/domain/${e}`, "AlienVault OTX"]],
-    url: [[`https://www.virustotal.com/gui/search/${e}`, "VirusTotal"]]
+    url: [[`https://www.virustotal.com/gui/search/${e}`, "VirusTotal"]],
+    hash: [[`https://bazaar.abuse.ch/sample/${e}/`, "MalwareBazaar"], [`https://www.virustotal.com/gui/file/${e}`, "VirusTotal"]]
   }[kind] || [];
   return links.map(([url, label]) => extLink(url, label)).join("");
 }

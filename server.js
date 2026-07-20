@@ -6,7 +6,9 @@ import { layerEntities, sourceName as sourceNameForLayer } from "./src/adapters/
 import {
   abuseIpLookup,
   greyNoiseLookup,
+  domainIntel,
   ipIntel,
+  malwareBazaarLookup,
   virusTotalDomainLookup,
   virusTotalIpLookup,
   virusTotalUrlLookup,
@@ -241,6 +243,20 @@ async function handleApi(req, res, url) {
       const domain = url.searchParams.get("domain");
       if (!domain) return sendJson(res, 400, { error: "domain required" });
       const data = await withHealth("virustotal-domain", "VirusTotal", () => virusTotalDomainLookup(domain));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/intel/domain") {
+      const domain = url.searchParams.get("domain");
+      if (!domain) return sendJson(res, 400, { error: "domain required" });
+      const data = await withHealth("domain-intel", "VirusTotal, URLhaus, crt.sh", () => domainIntel(domain));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/intel/malwarebazaar") {
+      const hash = url.searchParams.get("hash");
+      if (!hash) return sendJson(res, 400, { error: "hash required" });
+      const data = await withHealth("malwarebazaar", "MalwareBazaar", () => malwareBazaarLookup(hash));
       return sendJson(res, 200, data);
     }
 

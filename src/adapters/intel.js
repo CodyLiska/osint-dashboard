@@ -1,6 +1,24 @@
 import { cachedResilient } from "../lib/cache.js";
-import { fetchJsonRetry, withRetry } from "../lib/http.js";
+import { fetchJsonRetry, fetchTextRetry, withRetry } from "../lib/http.js";
 import { sanctionsSearch } from "./recon.js";
+
+// --- IPv4 helpers (Tor / Spamhaus membership checks) ---
+function ipToInt(ip) {
+  const parts = String(ip).split(".");
+  if (parts.length !== 4) return null;
+  const nums = parts.map(Number);
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+  return ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) >>> 0;
+}
+
+function ipInCidr(ipInt, cidr) {
+  const [base, bitsStr] = String(cidr).split("/");
+  const bits = Number(bitsStr);
+  const baseInt = ipToInt(base);
+  if (baseInt === null || !Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return ((ipInt & mask) >>> 0) === ((baseInt & mask) >>> 0);
+}
 
 function requireKey(name) {
   const key = process.env[name];
@@ -182,6 +200,113 @@ export async function urlhausHostLookup(host) {
   };
 }
 
+// Tor exit nodes: keyless bulk list of exit-relay IPs. Cache the set and check
+// membership — a queried IP that is a Tor exit is worth flagging.
+export async function torExitLookup(ip) {
+  const result = await cachedResilient("tor:exitlist", 60 * 60_000, async () => {
+    const text = await fetchTextRetry("https://check.torproject.org/torbulkexitlist");
+    return new Set(String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  });
+  return { source: "Tor Exit Nodes", ip, cached: result.cached, data: { torExit: result.value.has(ip) } };
+}
+
+// Spamhaus DROP/EDROP: keyless list of hijacked / do-not-route netblocks (CIDR).
+// Flag a queried IP that falls inside any listed range.
+export async function spamhausDropLookup(ip) {
+  const result = await cachedResilient("spamhaus:drop", 6 * 60 * 60_000, async () => {
+    const text = await fetchTextRetry("https://www.spamhaus.org/drop/drop_v4.json");
+    // NDJSON: one {cidr, sblid, rir} object per line (plus a metadata footer line).
+    return String(text).split(/\r?\n/)
+      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+      .filter((row) => row && row.cidr);
+  });
+  const ipInt = ipToInt(ip);
+  const hit = ipInt === null ? null : result.value.find((row) => ipInCidr(ipInt, row.cidr));
+  return {
+    source: "Spamhaus DROP",
+    ip,
+    cached: result.cached,
+    data: hit ? { listed: true, cidr: hit.cidr, sblid: hit.sblid } : { listed: false }
+  };
+}
+
+// MalwareBazaar (abuse.ch) file-hash lookup — malware sample metadata (family,
+// tags, file type, first/last seen). Same abuse.ch Auth-Key as ThreatFox/URLhaus.
+// query_status "hash_not_found" for an unknown hash is a valid empty result.
+export async function malwareBazaarLookup(hash) {
+  const key = requireKey("ABUSE_CH_AUTH_KEY");
+  const result = await cachedResilient(`malwarebazaar:${hash}`, 6 * 60 * 60_000, () =>
+    fetchJsonRetry("https://mb-api.abuse.ch/api/v1/", {
+      method: "POST",
+      headers: { "Auth-Key": key, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ query: "get_info", hash }).toString()
+    }));
+  const body = result.value || {};
+  const sample = Array.isArray(body.data) ? body.data[0] : null;
+  return {
+    source: "MalwareBazaar",
+    hash,
+    cached: result.cached,
+    data: sample
+      ? {
+        found: true,
+        sha256: sample.sha256_hash,
+        fileName: sample.file_name,
+        fileType: sample.file_type,
+        fileSize: sample.file_size,
+        signature: sample.signature,
+        tags: sample.tags,
+        firstSeen: sample.first_seen,
+        lastSeen: sample.last_seen,
+        reporter: sample.reporter,
+        deliveryMethod: sample.delivery_method
+      }
+      : { found: false, status: body.query_status }
+  };
+}
+
+// crt.sh Certificate Transparency search — keyless subdomain enumeration for a
+// domain (every cert ever issued names its hosts). crt.sh is notoriously flaky
+// (502s), so it rides cachedResilient + the domain fan-out's allSettled: when it
+// is down the domain lookup still returns the other sources.
+export async function crtShLookup(domain) {
+  const result = await cachedResilient(`crtsh:${domain}`, 6 * 60 * 60_000, () =>
+    fetchJsonRetry(`https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`, {}, { timeoutMs: 20_000 }));
+  const rows = Array.isArray(result.value) ? result.value : [];
+  const lower = domain.toLowerCase();
+  const names = new Set();
+  for (const row of rows) {
+    for (const raw of String(row.name_value || "").split(/\n/)) {
+      const name = raw.trim().toLowerCase();
+      if (name && !name.startsWith("*") && (name === lower || name.endsWith(`.${lower}`))) names.add(name);
+    }
+  }
+  const subdomains = [...names].sort();
+  return {
+    source: "crt.sh",
+    domain,
+    cached: result.cached,
+    data: { count: subdomains.length, subdomains: subdomains.slice(0, 100) }
+  };
+}
+
+// Domain intel fan-out (mirrors ipIntel): VirusTotal reputation (keyed), URLhaus
+// malicious-URL hosting (keyed), crt.sh subdomains (keyless).
+export async function domainIntel(domain) {
+  const lookups = await Promise.allSettled([
+    virusTotalDomainLookup(domain).catch((error) => Promise.reject({ source: "VirusTotal", error })),
+    urlhausHostLookup(domain).catch((error) => Promise.reject({ source: "URLhaus", error })),
+    crtShLookup(domain).catch((error) => Promise.reject({ source: "crt.sh", error }))
+  ]);
+  return {
+    indicator: domain,
+    type: "domain",
+    results: lookups.map((result) => result.status === "fulfilled"
+      ? result.value
+      : { source: result.reason?.source || "unavailable", error: result.reason?.error?.message || result.reason?.message || "Lookup failed" })
+  };
+}
+
 function vtHeaders() {
   return { "x-apikey": requireKey("VIRUSTOTAL_API_KEY") };
 }
@@ -244,7 +369,9 @@ export async function ipIntel(ip) {
     shodanInternetDb(ip).catch((error) => Promise.reject({ source: "Shodan InternetDB", error })),
     feodoLookup(ip).catch((error) => Promise.reject({ source: "Feodo Tracker", error })),
     threatFoxLookup(ip).catch((error) => Promise.reject({ source: "ThreatFox", error })),
-    urlhausHostLookup(ip).catch((error) => Promise.reject({ source: "URLhaus", error }))
+    urlhausHostLookup(ip).catch((error) => Promise.reject({ source: "URLhaus", error })),
+    torExitLookup(ip).catch((error) => Promise.reject({ source: "Tor Exit Nodes", error })),
+    spamhausDropLookup(ip).catch((error) => Promise.reject({ source: "Spamhaus DROP", error }))
   ]);
   return {
     indicator: ip,

@@ -10,6 +10,9 @@ import { maritimeLayer } from "./maritime.js";
 import { newsLayer } from "./news.js";
 import { portsLayer } from "./ports.js";
 import { gdeltLayer } from "./gdelt.js";
+import { gdacsLayer } from "./gdacs.js";
+import { ucdpLayer } from "./ucdp.js";
+import { nwsAlertsLayer } from "./nws.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -38,6 +41,15 @@ const LAYERS = [
   // high-volume (~hundreds every 15 min) for the reconcile model (see the
   // checklist in docs/PLAN-persistence.md).
   { id: "gdelt", sourceName: "GDELT Project", load: () => gdeltLayer(), persist: false },
+  // Event-shaped (disasters appear/end), stable GDACS eventid, low volume (~100)
+  // → a good persistence candidate per the checklist.
+  { id: "gdacs", sourceName: "GDACS", load: () => gdacsLayer(), persist: true },
+  // Optional-keyed (UCDP_ACCESS_TOKEN); curated conflict events. persist:false —
+  // it's a lagged accumulating historical record, not an appear/disappear feed.
+  { id: "ucdp", sourceName: "UCDP GED", load: () => ucdpLayer(), persist: false },
+  // Keyless US severe-weather WARNING POLYGONS (rendered as areas, not points).
+  // persist:false — the polygon payloads are heavy and alerts are short-lived US-only.
+  { id: "nws", sourceName: "NOAA/NWS", load: () => nwsAlertsLayer(), persist: false },
   { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak"), load: () => spaceWeatherLayer(), persist: false },
   { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false },
   { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false },
