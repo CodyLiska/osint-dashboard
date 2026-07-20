@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { installFetch } from "./helpers/mock-fetch.js";
 import { clearCache } from "../src/lib/cache.js";
-import { sanctionedCrypto, btcLookup, ethLookup, cryptoLayer, sanctionsLayer, sanctionsSearch, cveSearch } from "../src/adapters/recon.js";
+import { sanctionedCrypto, btcLookup, ethLookup, cryptoLayer, sanctionsLayer, sanctionsSearch, cveSearch, icsAdvisories, vulnCheckKev } from "../src/adapters/recon.js";
 
 const SDN_URL = "treasury.gov/ofac/downloads/sdn.xml";
 
@@ -53,13 +53,14 @@ const ethplorerInfo = (balance = 2, tokenCount = 1) => ({
 });
 
 // Resolver: SDN url -> given xml; other sanctions feeds -> empty; chain APIs / NVD -> JSON.
-function routes({ sdn = "", btc = {}, eth = ethRpc(), ethplorer = ethplorerInfo(), nvd = {} } = {}) {
+function routes({ sdn = "", btc = {}, eth = ethRpc(), ethplorer = ethplorerInfo(), nvd = {}, ransomwhere = { result: [] } } = {}) {
   return (url) => {
     if (url.includes(SDN_URL)) return sdn;
     if (url.includes("blockstream.info")) return btc;
     if (url.includes("api.ethplorer.io")) return ethplorer;
     if (url.includes("ethereum.publicnode.com")) return eth;
     if (url.includes("services.nvd.nist.gov")) return nvd;
+    if (url.includes("ransomwhe.re")) return ransomwhere;
     return ""; // consolidated / UN / UK feeds: empty
   };
 }
@@ -225,5 +226,65 @@ test("cveSearch passes NVD results through and tags the source", async () => {
     assert.equal(res.meta.source, "NVD");
   } finally {
     restore();
+  }
+});
+
+test("btcLookup flags a known ransomware payment address (Ransomwhere)", async () => {
+  const restore = installFetch(routes({
+    sdn: cryptoSdnXml,
+    btc: { address: "x", chain_stats: {} },
+    ransomwhere: { result: [{ address: "1RansomAddr" }, { address: "3OtherAddr" }] }
+  }));
+  try {
+    const hit = await btcLookup("1RansomAddr");
+    assert.equal(hit.ransomware, true);
+    const miss = await btcLookup("1CleanAddr");
+    assert.equal(miss.ransomware, false);
+  } finally {
+    restore();
+  }
+});
+
+test("icsAdvisories parses the CISA RSS into CVE-shaped rows", async () => {
+  const rss = `<rss><channel>
+    <item><title>Siemens SICAM 8</title><link>https://cisa.gov/ics-advisories/icsa-26-197-06</link><pubDate>Tue, 16 Jul 2026 12:00:00 +0000</pubDate><description><![CDATA[<p>A vulnerability in Siemens SICAM.</p>]]></description></item>
+    <item><title>Rockwell Automation ControlLogix</title><link>https://cisa.gov/ics-advisories/icsa-26-197-01</link><pubDate>Tue, 16 Jul 2026 11:00:00 +0000</pubDate><description>Affected products</description></item>
+  </channel></rss>`;
+  const restore = installFetch((url) => url.includes("cisa.gov") ? rss : "");
+  try {
+    const res = await icsAdvisories();
+    assert.equal(res.source, "CISA ICS advisories");
+    assert.equal(res.vulnerabilities.length, 2);
+    assert.equal(res.vulnerabilities[0].cve.id, "Siemens SICAM 8");
+    assert.match(res.vulnerabilities[0].cve.descriptions[0].value, /Siemens SICAM/);
+    assert.equal(res.vulnerabilities[0].cve.references[0].url, "https://cisa.gov/ics-advisories/icsa-26-197-06");
+  } finally {
+    restore();
+  }
+});
+
+test("vulnCheckKev is graceful-off without a token and maps entries when keyed", async () => {
+  const prev = process.env.VULNCHECK_API_TOKEN;
+  delete process.env.VULNCHECK_API_TOKEN;
+  let restore = installFetch(() => "");
+  try {
+    const off = await vulnCheckKev();
+    assert.equal(off.configured, false);
+    assert.match(off.message, /VULNCHECK_API_TOKEN/);
+  } finally {
+    restore();
+  }
+  process.env.VULNCHECK_API_TOKEN = "test-token";
+  restore = installFetch((url) => url.includes("api.vulncheck.com")
+    ? { data: [{ cve: ["CVE-2026-1234"], vulnerability_name: "Acme RCE", date_added: "2026-07-01", vulncheck_reported_exploitation: [{ url: "https://exploit.test/1" }] }] }
+    : "");
+  try {
+    const on = await vulnCheckKev();
+    assert.equal(on.configured, true);
+    assert.equal(on.vulnerabilities[0].cve.id, "CVE-2026-1234");
+    assert.match(on.vulnerabilities[0].cve.descriptions[0].value, /Acme RCE/);
+  } finally {
+    restore();
+    if (prev === undefined) delete process.env.VULNCHECK_API_TOKEN; else process.env.VULNCHECK_API_TOKEN = prev;
   }
 });

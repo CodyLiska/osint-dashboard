@@ -202,7 +202,7 @@ export function cveDetail(row) {
     ${kvRow("CVSS", cvss)}
     ${kvRow("Published", cve.published ? cve.published.slice(0, 10) : "")}
     <p class="result-desc">${escapeHtml(desc)}</p>
-    ${extLink(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id)}`, "Open on NVD")}
+    ${/^CVE-/i.test(cve.id) ? extLink(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id)}`, "Open on NVD") : ""}
     ${refs.length ? `<div class="result-refs">${refs.join("")}</div>` : ""}
   `;
 }

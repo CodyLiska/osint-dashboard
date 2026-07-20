@@ -14,7 +14,7 @@ import {
   virusTotalUrlLookup,
   whoisLookup
 } from "./src/adapters/intel.js";
-import { btcLookup, cveSearch, ethLookup, sanctionsSearch } from "./src/adapters/recon.js";
+import { btcLookup, cveSearch, ethLookup, icsAdvisories, sanctionsSearch, vulnCheckKev } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
 import { getChanges, getHistory, openDb, persistSnapshot, startRetention } from "./src/lib/persist.js";
@@ -200,7 +200,14 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === "/api/cves") {
       const keyword = url.searchParams.get("q") || "kev";
-      const data = await withHealth("cyber-search", "NVD", () => cveSearch(keyword));
+      // Special keywords reuse the CVE result shape: "ics" = CISA OT/ICS advisories
+      // (keyless), "vulncheck" = VulnCheck exploited-CVE intel (optional-keyed).
+      const kw = keyword.toLowerCase();
+      const data = kw === "ics"
+        ? await withHealth("ics-advisories", "CISA ICS", () => icsAdvisories())
+        : kw === "vulncheck"
+          ? await withHealth("vulncheck", "VulnCheck", () => vulnCheckKev())
+          : await withHealth("cyber-search", "NVD", () => cveSearch(keyword));
       return sendJson(res, 200, data);
     }
 

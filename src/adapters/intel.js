@@ -290,13 +290,38 @@ export async function crtShLookup(domain) {
   };
 }
 
+// URLScan.io public search — keyless. Recent scans of a domain (resolved IPs,
+// hosting countries, page titles), a "what has this domain been serving" view.
+export async function urlScanLookup(domain) {
+  const result = await cachedResilient(`urlscan:${domain}`, 60 * 60_000, () =>
+    fetchJsonRetry(`https://urlscan.io/api/v1/search/?q=domain:${encodeURIComponent(domain)}&size=20`));
+  const results = result.value?.results || [];
+  return {
+    source: "URLScan.io",
+    domain,
+    cached: result.cached,
+    data: {
+      total: result.value?.total ?? results.length,
+      recent: results.slice(0, 10).map((r) => ({
+        url: r.page?.url,
+        ip: r.page?.ip,
+        country: r.page?.country,
+        server: r.page?.server,
+        title: r.page?.title,
+        time: r.task?.time
+      }))
+    }
+  };
+}
+
 // Domain intel fan-out (mirrors ipIntel): VirusTotal reputation (keyed), URLhaus
-// malicious-URL hosting (keyed), crt.sh subdomains (keyless).
+// malicious-URL hosting (keyed), crt.sh subdomains (keyless), URLScan.io (keyless).
 export async function domainIntel(domain) {
   const lookups = await Promise.allSettled([
     virusTotalDomainLookup(domain).catch((error) => Promise.reject({ source: "VirusTotal", error })),
     urlhausHostLookup(domain).catch((error) => Promise.reject({ source: "URLhaus", error })),
-    crtShLookup(domain).catch((error) => Promise.reject({ source: "crt.sh", error }))
+    crtShLookup(domain).catch((error) => Promise.reject({ source: "crt.sh", error })),
+    urlScanLookup(domain).catch((error) => Promise.reject({ source: "URLScan.io", error }))
   ]);
   return {
     indicator: domain,
@@ -305,6 +330,24 @@ export async function domainIntel(domain) {
       ? result.value
       : { source: result.reason?.source || "unavailable", error: result.reason?.error?.message || result.reason?.message || "Lookup failed" })
   };
+}
+
+// RIPEstat: keyless RIPE NCC network/routing data. For an IP it returns the
+// announcing AS (number + holder) and the covering prefix — the "what network is
+// this on" pivot for the Intel tab. Two small data calls, cached together.
+export async function ripeStatLookup(ip) {
+  const result = await cachedResilient(`ripestat:${ip}`, 6 * 60 * 60_000, async () => {
+    const net = await fetchJsonRetry(`https://stat.ripe.net/data/network-info/data.json?resource=${encodeURIComponent(ip)}&sourceapp=osiris`);
+    const asns = net.data?.asns || [];
+    const prefix = net.data?.prefix || null;
+    let holder = null;
+    if (asns[0]) {
+      const overview = await fetchJsonRetry(`https://stat.ripe.net/data/as-overview/data.json?resource=AS${asns[0]}&sourceapp=osiris`).catch(() => null);
+      holder = overview?.data?.holder || null;
+    }
+    return { asns, prefix, holder };
+  });
+  return { source: "RIPEstat", ip, cached: result.cached, data: result.value };
 }
 
 function vtHeaders() {
@@ -371,7 +414,8 @@ export async function ipIntel(ip) {
     threatFoxLookup(ip).catch((error) => Promise.reject({ source: "ThreatFox", error })),
     urlhausHostLookup(ip).catch((error) => Promise.reject({ source: "URLhaus", error })),
     torExitLookup(ip).catch((error) => Promise.reject({ source: "Tor Exit Nodes", error })),
-    spamhausDropLookup(ip).catch((error) => Promise.reject({ source: "Spamhaus DROP", error }))
+    spamhausDropLookup(ip).catch((error) => Promise.reject({ source: "Spamhaus DROP", error })),
+    ripeStatLookup(ip).catch((error) => Promise.reject({ source: "RIPEstat", error }))
   ]);
   return {
     indicator: ip,

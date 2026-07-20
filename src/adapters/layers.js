@@ -13,6 +13,8 @@ import { gdeltLayer } from "./gdelt.js";
 import { gdacsLayer } from "./gdacs.js";
 import { ucdpLayer } from "./ucdp.js";
 import { nwsAlertsLayer } from "./nws.js";
+import { iodaLayer } from "./ioda.js";
+import { cloudflareRadarLayer } from "./cloudflare.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -50,6 +52,11 @@ const LAYERS = [
   // Keyless US severe-weather WARNING POLYGONS (rendered as areas, not points).
   // persist:false — the polygon payloads are heavy and alerts are short-lived US-only.
   { id: "nws", sourceName: "NOAA/NWS", load: () => nwsAlertsLayer(), persist: false },
+  // Country-level internet outages. Event-shaped (outages start/end), stable
+  // country id, sparse/high-signal → persist:true (feeds the what-changed panel).
+  { id: "ioda", sourceName: "IODA", load: () => iodaLayer(), persist: true },
+  // Optional-keyed (CLOUDFLARE_API_TOKEN); Cloudflare's outage annotations with cause.
+  { id: "cloudflare", sourceName: "Cloudflare Radar", load: () => cloudflareRadarLayer(), persist: false },
   { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak"), load: () => spaceWeatherLayer(), persist: false },
   { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false },
   { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false },

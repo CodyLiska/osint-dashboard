@@ -31,6 +31,8 @@ export const layerDefinitions = [
   { id: "gdacs", label: "GDACS Disasters", color: [249, 115, 22], live: true },
   { id: "ucdp", label: "Conflict (UCDP)", color: [190, 18, 60], live: true },
   { id: "nws", label: "NWS Alerts (US)", color: [124, 58, 237], live: true },
+  { id: "ioda", label: "Internet Outages", color: [219, 39, 119], live: true },
+  { id: "cloudflare", label: "Cloudflare Radar", color: [251, 146, 60], live: true },
   { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true },
   { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true },
   { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict" },

@@ -163,29 +163,96 @@ async function fetchEthData(address) {
 // drop the sanctions result (an analyst still needs to know the address is
 // sanctioned even if the balance provider is down), so the chain fetch degrades
 // to { error } instead of rejecting the whole lookup.
+// Ransomwhere: keyless dataset of known ransomware payment addresses. Cache the
+// set and check membership — a queried wallet that is a known ransom address is a
+// strong flag, complementing the OFAC sanctions check.
+async function ransomwhereAddresses() {
+  const result = await cachedResilient("ransomwhere:export", 12 * 60 * 60_000, async () => {
+    const doc = await fetchJsonRetry("https://api.ransomwhe.re/export");
+    const rows = doc.result || doc.data || (Array.isArray(doc) ? doc : []);
+    return new Set(rows.map((row) => row.address).filter(Boolean));
+  });
+  return result.value;
+}
+
+// CISA ICS advisories — keyless RSS of OT/ICS vulnerability advisories. Shaped
+// into the same {vulnerabilities:[{cve:{...}}]} structure cveSearch returns so the
+// Cyber tab renders them unchanged (searching "ics" returns these instead of NVD).
+export async function icsAdvisories() {
+  const result = await cachedResilient("cisa:ics", 60 * 60_000, () =>
+    fetchTextRetry("https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml"));
+  const items = String(result.value).split(/<item>/).slice(1).map((s) => s.split("</item>")[0]);
+  const get = (block, tag) => {
+    const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+    return m ? decodeXml(m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim()) : "";
+  };
+  const vulnerabilities = items.slice(0, 25).map((item) => {
+    const link = get(item, "link");
+    const pubDate = get(item, "pubDate");
+    const desc = get(item, "description").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return {
+      cve: {
+        id: get(item, "title") || link,
+        published: pubDate ? new Date(pubDate).toISOString() : null,
+        descriptions: [{ lang: "en", value: desc.slice(0, 500) || get(item, "title") }],
+        references: link ? [{ url: link }] : []
+      }
+    };
+  });
+  return { totalResults: vulnerabilities.length, vulnerabilities, source: "CISA ICS advisories" };
+}
+
+// VulnCheck KEV — optional-keyed (VULNCHECK_API_TOKEN). Enriched known-exploited
+// vulnerabilities (exploit/weaponization intel beyond CISA KEV). Same CVE result
+// shape; "vulncheck" keyword in the Cyber tab. Graceful-off without a token.
+export async function vulnCheckKev() {
+  const token = process.env.VULNCHECK_API_TOKEN;
+  if (!token) {
+    return { totalResults: 0, vulnerabilities: [], source: "VulnCheck", configured: false, message: "VULNCHECK_API_TOKEN not set — VulnCheck exploited-CVE intel unavailable (try 'kev' for CISA KEV)." };
+  }
+  const result = await cachedResilient("vulncheck:kev", 60 * 60_000, () =>
+    fetchJsonRetry("https://api.vulncheck.com/v3/index/vulncheck-kev?limit=25&sort=-date_added", {
+      headers: { authorization: `Bearer ${token}` }
+    }));
+  const rows = result.value?.data || [];
+  const vulnerabilities = rows.slice(0, 25).flatMap((entry) => (entry.cve || []).map((id) => ({
+    cve: {
+      id,
+      published: entry.date_added || null,
+      descriptions: [{ lang: "en", value: entry.vulnerability_name || entry.shortDescription || "VulnCheck exploited vulnerability" }],
+      references: (entry.vulncheck_reported_exploitation || []).map((r) => ({ url: r.url })).filter((r) => r.url).slice(0, 4)
+    }
+  })));
+  return { totalResults: vulnerabilities.length, vulnerabilities, configured: true, source: "VulnCheck" };
+}
+
 export async function btcLookup(address) {
-  const [data, ofac] = await Promise.all([
+  const [data, ofac, ransom] = await Promise.all([
     fetchJsonRetry(`https://blockstream.info/api/address/${encodeURIComponent(address)}`)
       .catch((error) => ({ error: error.message })),
-    sanctionedCrypto().catch(() => [])
+    sanctionedCrypto().catch(() => []),
+    ransomwhereAddresses().catch(() => new Set())
   ]);
   return {
     chain: "BTC",
     address,
     sanctioned: containsAddress(ofac, address),
+    ransomware: ransom.has(address),
     data
   };
 }
 
 export async function ethLookup(address) {
-  const [data, ofac] = await Promise.all([
+  const [data, ofac, ransom] = await Promise.all([
     fetchEthData(address).catch((error) => ({ error: error.message })),
-    sanctionedCrypto().catch(() => [])
+    sanctionedCrypto().catch(() => []),
+    ransomwhereAddresses().catch(() => new Set())
   ]);
   return {
     chain: "ETH",
     address,
     sanctioned: containsAddress(ofac, address),
+    ransomware: ransom.has(address),
     data
   };
 }

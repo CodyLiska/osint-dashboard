@@ -6,3 +6,4 @@ node_modules/
 .claude/*
 build-notes.md
 dev-notes.md
+.playwright-mcp/

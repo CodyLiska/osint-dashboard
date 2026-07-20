@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installFetch } from "./helpers/mock-fetch.js";
-import { crtShLookup, domainIntel, feodoLookup, ipIntel, malwareBazaarLookup, sanctionsCrossCheck, shodanInternetDb, spamhausDropLookup, threatFoxLookup, torExitLookup, urlhausHostLookup, whoisLookup } from "../src/adapters/intel.js";
+import { crtShLookup, domainIntel, feodoLookup, ipIntel, malwareBazaarLookup, ripeStatLookup, sanctionsCrossCheck, shodanInternetDb, spamhausDropLookup, threatFoxLookup, torExitLookup, urlhausHostLookup, urlScanLookup, whoisLookup } from "../src/adapters/intel.js";
 import { clearCache } from "../src/lib/cache.js";
 
 const SDN_URL = "treasury.gov/ofac/downloads/sdn.xml";
@@ -440,5 +440,54 @@ test("domainIntel fans out to crt.sh (keyless) even when the keyed sources are u
     restore();
     if (prevVt !== undefined) process.env.VIRUSTOTAL_API_KEY = prevVt;
     if (prevAbuse !== undefined) process.env.ABUSE_CH_AUTH_KEY = prevAbuse;
+  }
+});
+
+test("ripeStatLookup returns the ASN, prefix, and AS holder for an IP", async () => {
+  const restore = installFetch((url) => {
+    if (url.includes("network-info")) return { data: { asns: ["15169"], prefix: "8.8.8.0/24" } };
+    if (url.includes("as-overview")) return { data: { holder: "GOOGLE - Google LLC" } };
+    return "";
+  });
+  try {
+    const res = await ripeStatLookup("8.8.8.8");
+    assert.equal(res.source, "RIPEstat");
+    assert.deepEqual(res.data.asns, ["15169"]);
+    assert.equal(res.data.prefix, "8.8.8.0/24");
+    assert.equal(res.data.holder, "GOOGLE - Google LLC");
+  } finally {
+    restore();
+  }
+});
+
+test("ipIntel includes the RIPEstat network result", async () => {
+  const restore = installFetch((url) => {
+    if (url.includes("network-info")) return { data: { asns: ["13335"], prefix: "1.1.1.0/24" } };
+    if (url.includes("as-overview")) return { data: { holder: "CLOUDFLARENET" } };
+    if (url.includes("internetdb.shodan.io")) return { ip: "1.1.1.1", ports: [], vulns: [], tags: [], hostnames: [], cpes: [] };
+    if (url.includes("feodotracker.abuse.ch")) return [];
+    return "";
+  });
+  try {
+    const res = await ipIntel("1.1.1.1");
+    const ripe = res.results.find((r) => r.source === "RIPEstat");
+    assert.ok(ripe && ripe.data.holder === "CLOUDFLARENET");
+  } finally {
+    restore();
+  }
+});
+
+test("urlScanLookup summarizes recent scans of a domain", async () => {
+  const restore = installFetch((url) => url.includes("urlscan.io")
+    ? { total: 42, results: [{ page: { url: "https://evil.test/x", ip: "1.2.3.4", country: "RU", server: "nginx", title: "Phish" }, task: { time: "2026-07-01T00:00:00Z" } }] }
+    : "");
+  try {
+    const res = await urlScanLookup("evil.test");
+    assert.equal(res.source, "URLScan.io");
+    assert.equal(res.data.total, 42);
+    assert.equal(res.data.recent[0].ip, "1.2.3.4");
+    assert.equal(res.data.recent[0].country, "RU");
+  } finally {
+    restore();
   }
 });

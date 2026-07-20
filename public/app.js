@@ -80,6 +80,8 @@ const LAYER_REFRESH_MS = {
   gdacs: 300_000,
   ucdp: 1_800_000,
   nws: 300_000,
+  ioda: 300_000,
+  cloudflare: 1_800_000,
   sanctions: 1_800_000
 };
 // One ticker checks every layer's elapsed time against its cadence, so intervals
@@ -285,6 +287,15 @@ const gdacsIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 const gdacsIconMapping = {
   gdacs: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 54, mask: true }
 };
+const iodaIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" fill-rule="evenodd" d="M32 6a26 26 0 1 0 0 52 26 26 0 0 0 0-52Zm0 6a20 20 0 1 1 0 40 20 20 0 0 1 0-40Z"/>
+  <path fill="white" d="M18.9 15.3 48.7 45.1l-3.6 3.6L15.3 18.9z"/>
+</svg>
+`)}`;
+const iodaIconMapping = {
+  ioda: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
 const menuIcons = {
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
@@ -302,6 +313,7 @@ const menuIcons = {
   gdelt: `<svg viewBox="0 0 64 64" aria-hidden="true"><path fill-rule="evenodd" d="M32 6a26 26 0 1 0 0 52 26 26 0 0 0 0-52Zm0 6a20 20 0 1 1 0 40 20 20 0 0 1 0-40Z"/><path fill-rule="evenodd" d="M32 18a14 14 0 1 0 0 28 14 14 0 0 0 0-28Zm0 6a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"/><circle cx="32" cy="32" r="4"/></svg>`,
   gdacs: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6 3 58h58L32 6Zm0 13a3.2 3.2 0 0 1 3.2 3.4l-1 18a2.2 2.2 0 0 1-4.4 0l-1-18A3.2 3.2 0 0 1 32 19Zm0 27a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"/></svg>`,
   nws: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6a13 13 0 0 0-13 13c0 12-5 16-7 19a2 2 0 0 0 1.7 3h36.6a2 2 0 0 0 1.7-3c-2-3-7-7-7-19A13 13 0 0 0 32 6Zm0 52a7 7 0 0 0 6.7-5H25.3A7 7 0 0 0 32 58Z"/></svg>`,
+  ioda: `<svg viewBox="0 0 64 64" aria-hidden="true"><path fill-rule="evenodd" d="M32 6a26 26 0 1 0 0 52 26 26 0 0 0 0-52Zm0 6a20 20 0 1 1 0 40 20 20 0 0 1 0-40Z"/><path d="M18.9 15.3 48.7 45.1l-3.6 3.6L15.3 18.9z"/></svg>`,
   conflict: `<svg viewBox="0 0 64 64" aria-hidden="true"><path transform="rotate(45 32 32)" d="${conflictSword}"/><path transform="rotate(-45 32 32)" d="${conflictSword}"/></svg>`,
   maritime: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 40 H56 L49 51 H15 Z M22 28 H42 V40 H22 Z M30 20 H36 V28 H30 Z"/></svg>`,
   military: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${militaryStar}"/></svg>`,
@@ -826,6 +838,23 @@ function buildIconLayer(id, data) {
       });
     }
 
+    if (id === "ioda") {
+      return new deck.IconLayer({
+        id: "ioda-icons",
+        data,
+        pickable: true,
+        iconAtlas: iodaIconAtlas,
+        iconMapping: iodaIconMapping,
+        getIcon: () => "ioda",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: () => 30,
+        getColor: () => [...(palette.get("ioda") || [255, 255, 255]), 245],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
     if (id === "gdacs") {
       return new deck.IconLayer({
         id: "gdacs-icons",
@@ -1159,6 +1188,7 @@ async function runWalletLookup() {
       : { url: `https://blockstream.info/address/${encodeURIComponent(address)}`, label: "View on Blockstream" };
     result.innerHTML = `
       <div class="${payload.sanctioned ? "badge danger" : "badge ok"}">${payload.sanctioned ? "SANCTIONED - OFAC SDN" : "No OFAC crypto match"}</div>
+      ${payload.ransomware ? `<div class="badge danger">KNOWN RANSOMWARE ADDRESS (Ransomwhere)</div>` : ""}
       ${extLink(explorer.url, explorer.label)}
       <pre>${escapeHtml(JSON.stringify(payload.data, null, 2).slice(0, 1800))}</pre>
     `;
@@ -1225,7 +1255,7 @@ async function runIntelLookup() {
     const payload = await fetchJson(route);
     result.innerHTML = kind === "whois"
       ? renderWhois(payload)
-      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 8000))}</pre>`;
+      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 10000))}</pre>`;
   } catch (error) {
     result.textContent = error.message;
   }
@@ -1256,7 +1286,7 @@ async function runCveSearch() {
     const payload = await fetchJson(`/api/cves?q=${encodeURIComponent(q)}`);
     const rows = (payload.vulnerabilities || []).slice(0, 8);
     if (!rows.length) {
-      result.textContent = "No CVEs found.";
+      result.textContent = payload.message || "No CVEs found.";
       return;
     }
     result.innerHTML = rows.map((row) => `
