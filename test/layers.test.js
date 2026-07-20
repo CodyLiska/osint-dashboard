@@ -23,7 +23,7 @@ test("persistableIds is the event-shaped allowlist and excludes kinematic/static
   for (const id of ["seismic", "weather", "cyber", "news", "telegram", "conflict"]) {
     assert.ok(ids.includes(id), `${id} should be persistable`);
   }
-  for (const id of ["aviation", "military-air", "maritime", "ports", "space", "crypto", "sanctions"]) {
+  for (const id of ["aviation", "military-air", "maritime", "ports", "space", "crypto", "sanctions", "gdelt"]) {
     assert.ok(!ids.includes(id), `${id} must not be persistable`);
   }
 });

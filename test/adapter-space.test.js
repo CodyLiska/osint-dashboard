@@ -34,9 +34,39 @@ test("spaceWeatherLayer emits a Kp entity plus SWPC alerts, scoring alert severi
     const g2 = entities.find((e) => e.name === "K02A");
     assert.equal(g4.severity, 5); // G4/WARNING -> 5
     assert.equal(g2.severity, 3); // G2 -> 3
-    assert.equal(meta.source, "NOAA SWPC");
-    assert.equal(meta.n2yo.configured, false);
+    assert.equal(meta.source, "NOAA SWPC"); // no satellites from the empty mock
+    assert.equal(meta.satellites.approximate, true); // keyless → CelesTrak path
     assert.equal(meta.kp, "5.00");
+  } finally {
+    restore();
+    if (saved === undefined) delete process.env.N2YO_API_KEY; else process.env.N2YO_API_KEY = saved;
+  }
+});
+
+test("without an N2YO key, satellites come from CelesTrak elements (keyless, approximate)", async () => {
+  const saved = process.env.N2YO_API_KEY;
+  delete process.env.N2YO_API_KEY;
+  // Real GOES-18 GP record; every CATNR request in the mock returns it.
+  const goes18Gp = {
+    OBJECT_NAME: "GOES 18", NORAD_CAT_ID: 51850, EPOCH: "2026-07-19T17:39:30.046752",
+    MEAN_MOTION: 1.00272002, ECCENTRICITY: 0.0000616, INCLINATION: 0.0158,
+    RA_OF_ASC_NODE: 91.176, ARG_OF_PERICENTER: 60.7789, MEAN_ANOMALY: 273.4501
+  };
+  const restore = installJsonFetch((url) => {
+    if (url.includes("alerts.json")) return [];
+    if (url.includes("noaa-planetary-k-index.json")) return [{ time_tag: "2026-06-01T12:00:00", Kp: "2.00", station_count: 8 }];
+    if (url.includes("celestrak.org")) return [goes18Gp];
+    return {};
+  });
+  try {
+    const { entities, meta } = await spaceWeatherLayer();
+    const sat = entities.find((e) => e.type === "Satellite position");
+    assert.ok(sat, "a satellite entity is produced from CelesTrak elements");
+    assert.equal(sat.source, "CelesTrak (approx)");
+    assert.ok(Number.isFinite(sat.lat) && Number.isFinite(sat.lon), "has a computed position");
+    assert.ok(Math.abs(sat.altitudeKm - 35786) < 50, `GEO altitude: ${sat.altitudeKm}`);
+    assert.equal(meta.source, "NOAA SWPC, CelesTrak");
+    assert.equal(meta.satellites.approximate, true);
   } finally {
     restore();
     if (saved === undefined) delete process.env.N2YO_API_KEY; else process.env.N2YO_API_KEY = saved;

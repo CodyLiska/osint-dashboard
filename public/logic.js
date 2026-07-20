@@ -13,7 +13,7 @@ export function escapeHtml(value) {
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports"]);
+export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt"]);
 export const CLUSTER_MIN_POINTS = 15;
 export const CLUSTER_MAX_ZOOM = 5;
 
@@ -138,6 +138,11 @@ export function detailRows(item) {
   if (Number.isFinite(item.akaCount)) add("Aliases", item.akaCount);
   if (Number.isFinite(item.idCount)) add("IDs", item.idCount);
   if (item.altitude) add("Altitude", `${Math.round(item.altitude).toLocaleString()} m`);
+  add("Event class", item.eventClass);
+  if (Number.isFinite(item.articles) && item.articles) {
+    add("Coverage", `${item.articles} article${item.articles === 1 ? "" : "s"}`);
+  }
+  if (Number.isFinite(item.tone) && item.eventClass) add("Tone", Number(item.tone).toFixed(1));
   add("Confidence", item.confidence);
   add("Source", item.source);
   return rows;
@@ -174,7 +179,7 @@ export function sanctionDetail(row) {
 export function intelLinks(kind, q) {
   const e = encodeURIComponent(q);
   const links = {
-    ip: [[`https://www.virustotal.com/gui/ip-address/${e}`, "VirusTotal"], [`https://www.abuseipdb.com/check/${e}`, "AbuseIPDB"], [`https://viz.greynoise.io/ip/${e}`, "GreyNoise"]],
+    ip: [[`https://www.virustotal.com/gui/ip-address/${e}`, "VirusTotal"], [`https://www.abuseipdb.com/check/${e}`, "AbuseIPDB"], [`https://viz.greynoise.io/ip/${e}`, "GreyNoise"], [`https://www.shodan.io/host/${e}`, "Shodan"]],
     domain: [[`https://www.virustotal.com/gui/domain/${e}`, "VirusTotal"], [`https://otx.alienvault.com/indicator/domain/${e}`, "AlienVault OTX"]],
     url: [[`https://www.virustotal.com/gui/search/${e}`, "VirusTotal"]]
   }[kind] || [];

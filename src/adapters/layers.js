@@ -9,6 +9,7 @@ import { cryptoLayer, sanctionsLayer } from "./recon.js";
 import { maritimeLayer } from "./maritime.js";
 import { newsLayer } from "./news.js";
 import { portsLayer } from "./ports.js";
+import { gdeltLayer } from "./gdelt.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -33,7 +34,11 @@ const LAYERS = [
   { id: "telegram", sourceName: "Telegram public preview", load: () => telegramLayer(), persist: true },
   { id: "cyber", sourceName: "NVD", load: () => cyberLayer(), persist: true },
   { id: "news", sourceName: () => (process.env.NEWSAPI_KEY ? "NewsAPI" : "Static broadcaster directory"), load: () => newsLayer(), persist: true },
-  { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC"), load: () => spaceWeatherLayer(), persist: false },
+  // persist:false — event-shaped with a stable GlobalEventID, but far too
+  // high-volume (~hundreds every 15 min) for the reconcile model (see the
+  // checklist in docs/PLAN-persistence.md).
+  { id: "gdelt", sourceName: "GDELT Project", load: () => gdeltLayer(), persist: false },
+  { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak"), load: () => spaceWeatherLayer(), persist: false },
   { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false },
   { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false },
   { id: "sanctions", sourceName: "Official sanctions feeds", load: () => sanctionsLayer(), persist: false },

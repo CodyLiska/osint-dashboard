@@ -61,6 +61,127 @@ export async function greyNoiseLookup(ip) {
   };
 }
 
+// Shodan InternetDB: keyless per-IP exposure — open ports, known CVEs, tags,
+// hostnames, CPEs. A 404 ("No information available") is a valid empty result,
+// not an error; other non-2xx throw with status so withRetry decides whether to
+// retry (5xx / network / timeout) or give up (4xx).
+async function internetDbOnce(ip) {
+  const response = await fetch(`https://internetdb.shodan.io/${encodeURIComponent(ip)}`, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (response.status === 404) {
+    return { ip, ports: [], vulns: [], tags: [], hostnames: [], cpes: [], found: false };
+  }
+  const body = await response.json().catch(() => ({}));
+  if (response.ok) return { ...body, found: true };
+  const error = new Error(`${response.status} ${response.statusText}`);
+  error.status = response.status;
+  throw error;
+}
+
+export async function shodanInternetDb(ip) {
+  const result = await cachedResilient(`internetdb:${ip}`, 30 * 60_000, () => withRetry(() => internetDbOnce(ip)));
+  return {
+    source: "Shodan InternetDB",
+    ip,
+    cached: result.cached,
+    data: result.value
+  };
+}
+
+// Feodo Tracker: keyless botnet C2 IP blocklist (Emotet/Dridex/etc.). The list is
+// small and refreshed upstream a few times a day, so we cache the whole thing and
+// check membership — an IP present is a known malware command-and-control host.
+async function feodoBlocklist() {
+  const result = await cachedResilient("feodo:ipblocklist", 60 * 60_000, () =>
+    fetchJsonRetry("https://feodotracker.abuse.ch/downloads/ipblocklist.json"));
+  return Array.isArray(result.value) ? result.value : [];
+}
+
+export async function feodoLookup(ip) {
+  const hit = (await feodoBlocklist()).find((row) => row.ip_address === ip);
+  return {
+    source: "Feodo Tracker",
+    ip,
+    data: hit
+      ? {
+        c2: true,
+        malware: hit.malware,
+        port: hit.port,
+        status: hit.status,
+        firstSeen: hit.first_seen,
+        lastOnline: hit.last_online,
+        asName: hit.as_name,
+        country: hit.country
+      }
+      : { c2: false }
+  };
+}
+
+// ThreatFox IOC search. abuse.ch added a mandatory free Auth-Key (register at
+// auth.abuse.ch); without ABUSE_CH_AUTH_KEY this reports "not configured" like the
+// other keyed sources. A clean IOC returns query_status "no_result" (not an error).
+export async function threatFoxLookup(indicator) {
+  const key = requireKey("ABUSE_CH_AUTH_KEY");
+  const result = await cachedResilient(`threatfox:${indicator}`, 30 * 60_000, () =>
+    fetchJsonRetry("https://threatfox-api.abuse.ch/api/v1/", {
+      method: "POST",
+      headers: { "Auth-Key": key, "content-type": "application/json" },
+      body: JSON.stringify({ query: "search_ioc", search_term: indicator })
+    }));
+  const body = result.value || {};
+  const matches = Array.isArray(body.data) ? body.data : [];
+  return {
+    source: "ThreatFox",
+    ip: indicator,
+    cached: result.cached,
+    data: {
+      status: body.query_status,
+      matchCount: matches.length,
+      matches: matches.slice(0, 10).map((m) => ({
+        malware: m.malware_printable || m.malware,
+        threatType: m.threat_type,
+        confidence: m.confidence_level,
+        firstSeen: m.first_seen,
+        tags: m.tags,
+        reference: m.reference
+      }))
+    }
+  };
+}
+
+// URLhaus host lookup (malicious URLs hosted on an IP/domain). Same abuse.ch
+// Auth-Key. query_status "no_results" for a clean host is a valid empty result.
+export async function urlhausHostLookup(host) {
+  const key = requireKey("ABUSE_CH_AUTH_KEY");
+  const result = await cachedResilient(`urlhaus:${host}`, 30 * 60_000, () =>
+    fetchJsonRetry("https://urlhaus-api.abuse.ch/v1/host/", {
+      method: "POST",
+      headers: { "Auth-Key": key, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ host }).toString()
+    }));
+  const body = result.value || {};
+  const urls = Array.isArray(body.urls) ? body.urls : [];
+  return {
+    source: "URLhaus",
+    ip: host,
+    cached: result.cached,
+    data: {
+      status: body.query_status,
+      urlCount: Number(body.url_count) || urls.length,
+      firstSeen: body.firstseen,
+      urls: urls.slice(0, 10).map((u) => ({
+        url: u.url,
+        status: u.url_status,
+        threat: u.threat,
+        dateAdded: u.date_added,
+        tags: u.tags
+      }))
+    }
+  };
+}
+
 function vtHeaders() {
   return { "x-apikey": requireKey("VIRUSTOTAL_API_KEY") };
 }
@@ -119,7 +240,11 @@ export async function ipIntel(ip) {
   const lookups = await Promise.allSettled([
     abuseIpLookup(ip).catch((error) => Promise.reject({ source: "AbuseIPDB", error })),
     greyNoiseLookup(ip).catch((error) => Promise.reject({ source: "GreyNoise Community", error })),
-    virusTotalIpLookup(ip).catch((error) => Promise.reject({ source: "VirusTotal", error }))
+    virusTotalIpLookup(ip).catch((error) => Promise.reject({ source: "VirusTotal", error })),
+    shodanInternetDb(ip).catch((error) => Promise.reject({ source: "Shodan InternetDB", error })),
+    feodoLookup(ip).catch((error) => Promise.reject({ source: "Feodo Tracker", error })),
+    threatFoxLookup(ip).catch((error) => Promise.reject({ source: "ThreatFox", error })),
+    urlhausHostLookup(ip).catch((error) => Promise.reject({ source: "URLhaus", error }))
   ]);
   return {
     indicator: ip,

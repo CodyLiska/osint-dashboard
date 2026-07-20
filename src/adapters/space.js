@@ -1,6 +1,7 @@
 import { cachedResilient } from "../lib/cache.js";
 import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
+import { elementsFromGp, subSatellitePoint } from "../lib/orbit.js";
 
 function latest(rows) {
   return rows?.length ? rows[rows.length - 1] : null;
@@ -74,6 +75,51 @@ async function n2yoSatellites() {
   };
 }
 
+// Keyless satellite fallback: CelesTrak publishes orbital elements (not
+// positions), so we propagate each to now with a two-body model (src/lib/orbit).
+// Positions are APPROXIMATE — fine for a situational dot from CelesTrak's fresh
+// epochs (validated to <0.2deg against operational geostationary sats), not
+// precise tracking. Used only when N2YO_API_KEY is absent.
+async function celestrakSatellites() {
+  const ids = (process.env.N2YO_SATELLITE_IDS || defaultSatelliteIds.join(","))
+    .split(",")
+    .map((value) => Number(value.trim()))
+    .filter(Number.isFinite)
+    .slice(0, Number(process.env.N2YO_MAX_SATELLITES || 12));
+
+  const records = [];
+  for (const id of ids) {
+    // Elements change slowly, so cache them for hours; the position is computed
+    // live from them on every layer fetch.
+    const result = await cachedResilient(`celestrak:gp:${id}`, 2 * 60 * 60_000, () =>
+      fetchJsonRetry(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=json`)
+    ).catch(() => null);
+    const gp = Array.isArray(result?.value) ? result.value[0] : null;
+    if (gp) records.push(gp);
+  }
+
+  const now = Date.now();
+  const entities = records.map((gp) => {
+    const point = subSatellitePoint(elementsFromGp(gp), now);
+    return entity({
+      id: `satellite-${gp.NORAD_CAT_ID}`,
+      layer: "space",
+      type: "Satellite position",
+      name: gp.OBJECT_NAME || `Satellite ${gp.NORAD_CAT_ID}`,
+      lat: point.lat,
+      lon: point.lon,
+      severity: 2,
+      time: new Date(now).toISOString(),
+      source: "CelesTrak (approx)",
+      summary: `Approx sub-satellite point (two-body from CelesTrak elements); altitude ${point.altKm.toFixed(0)} km. Configure N2YO_API_KEY for precise positions.`,
+      altitudeKm: point.altKm,
+      satId: gp.NORAD_CAT_ID
+    });
+  }).filter(finiteCoordinate);
+
+  return { entities, meta: { configured: true, approximate: true, count: entities.length, requested: ids.length } };
+}
+
 export async function spaceWeatherLayer() {
   const result = await cachedResilient("swpc:space-weather", 10 * 60_000, async () => {
     const [alerts, kp] = await Promise.all([
@@ -85,7 +131,10 @@ export async function spaceWeatherLayer() {
 
   const recentAlerts = (result.value.alerts || []).slice(0, 8);
   const kp = latest(result.value.kp || []);
-  const satellites = await n2yoSatellites();
+  // N2YO gives precise positions when a key is set; otherwise fall back to the
+  // keyless CelesTrak two-body approximation so satellites still appear.
+  const useN2yo = Boolean(process.env.N2YO_API_KEY);
+  const satellites = useN2yo ? await n2yoSatellites() : await celestrakSatellites();
   const entities = [
     kp && entity({
       id: `space-kp-${kp.time_tag}`,
@@ -121,10 +170,12 @@ export async function spaceWeatherLayer() {
     meta: {
       cached: result.cached,
       stale: Boolean(result.stale),
-      source: satellites.meta.configured ? "NOAA SWPC, N2YO" : "NOAA SWPC",
+      source: satellites.entities.length
+        ? (useN2yo ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak")
+        : "NOAA SWPC",
       alertCount: recentAlerts.length,
       kp: kp?.Kp,
-      n2yo: satellites.meta
+      satellites: satellites.meta
     }
   };
 }

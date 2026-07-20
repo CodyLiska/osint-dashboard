@@ -147,8 +147,18 @@ test("sanctionDetail surfaces properties and falls back when empty", () => {
 test("intelLinks returns the right pivot portals per indicator kind", () => {
   assert.match(intelLinks("ip", "1.2.3.4"), /abuseipdb\.com\/check\/1\.2\.3\.4/);
   assert.match(intelLinks("ip", "1.2.3.4"), /viz\.greynoise\.io/);
+  assert.match(intelLinks("ip", "1.2.3.4"), /shodan\.io\/host\/1\.2\.3\.4/);
   assert.match(intelLinks("domain", "evil.test"), /otx\.alienvault\.com/);
   assert.equal(intelLinks("whois", "x"), ""); // no pivot links for whois
+});
+
+test("detailRows surfaces GDELT event fields", () => {
+  const rows = detailRows({ layer: "gdelt", eventClass: "Material conflict", articles: 12, tone: -6.3, source: "GDELT" });
+  const map = Object.fromEntries(rows);
+  assert.equal(map["Event class"], "Material conflict");
+  assert.equal(map["Coverage"], "12 articles");
+  assert.equal(map["Tone"], "-6.3");
+  assert.equal(map["Source"], "GDELT");
 });
 
 test("relativeTime buckets an elapsed timestamp into minutes/hours/days", () => {

@@ -27,6 +27,7 @@ export const layerDefinitions = [
   { id: "fires", label: "NASA FIRMS Fires", color: [239, 68, 68], live: true },
   { id: "weather", label: "Severe Weather", color: [59, 130, 246], live: true },
   { id: "news", label: "Live News", color: [250, 204, 21], live: true },
+  { id: "gdelt", label: "GDELT Events", color: [232, 121, 249], live: true },
   { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true },
   { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true },
   { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict" },

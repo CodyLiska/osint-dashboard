@@ -19,6 +19,18 @@ function httpError(response) {
   return error;
 }
 
+export async function fetchBuffer(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "user-agent": "OSIRIS-Situational-Dashboard/0.2",
+      ...(options.headers || {})
+    }
+  });
+  if (!response.ok) throw httpError(response);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function fetchText(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -56,4 +68,8 @@ export function fetchJsonRetry(url, options = {}, { retries = 1, timeoutMs = 10_
 
 export function fetchTextRetry(url, options = {}, { retries = 1, timeoutMs = 20_000 } = {}) {
   return withRetry(() => fetchText(url, { signal: AbortSignal.timeout(timeoutMs), ...options }), retries);
+}
+
+export function fetchBufferRetry(url, options = {}, { retries = 1, timeoutMs = 30_000 } = {}) {
+  return withRetry(() => fetchBuffer(url, { signal: AbortSignal.timeout(timeoutMs), ...options }), retries);
 }

@@ -76,6 +76,7 @@ const LAYER_REFRESH_MS = {
   crypto: 300_000,
   ports: 600_000,
   cyber: 900_000,
+  gdelt: 900_000,
   sanctions: 1_800_000
 };
 // One ticker checks every layer's elapsed time against its cadence, so intervals
@@ -83,6 +84,12 @@ const LAYER_REFRESH_MS = {
 // clock) rather than fixed wall-clock multiples.
 const POLL_TICK_MS = 15_000;
 const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports"]);
+
+// Live layers fetched with the current viewport bbox; every other live layer
+// fetches globally. (A superset of VIEWPORT_AWARE_LAYERS — maritime also loads
+// with bounds but isn't re-fetched on map move.) Any live layer not listed here
+// simply fetches globally, so a new source needs no change to ensureLayer.
+const BOUNDS_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports", "maritime"]);
 
 const els = {
   layerList: document.querySelector("#layer-list"),
@@ -257,6 +264,16 @@ const militaryIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 const militaryIconMapping = {
   military: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
 };
+const gdeltIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" fill-rule="evenodd" d="M32 6a26 26 0 1 0 0 52 26 26 0 0 0 0-52Zm0 6a20 20 0 1 1 0 40 20 20 0 0 1 0-40Z"/>
+  <path fill="white" fill-rule="evenodd" d="M32 18a14 14 0 1 0 0 28 14 14 0 0 0 0-28Zm0 6a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"/>
+  <circle fill="white" cx="32" cy="32" r="4"/>
+</svg>
+`)}`;
+const gdeltIconMapping = {
+  gdelt: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
 const menuIcons = {
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
@@ -271,6 +288,7 @@ const menuIcons = {
   chokepoints: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 14 L8 50 L28 32 Z M56 14 L56 50 L36 32 Z"/></svg>`,
   cctv: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 20 h24 v14 h-24 z M34 24 l10 -3 v12 l-10 -3 z M20 34 h4 v8 h8 v3 h-20 v-3 h8 z"/></svg>`,
   news: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 46 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 z"/><path d="M18 36 A10 10 0 0 1 28 46 L33 46 A15 15 0 0 0 18 31 Z"/><path d="M18 26 A20 20 0 0 1 38 46 L43 46 A25 25 0 0 0 18 21 Z"/></svg>`,
+  gdelt: `<svg viewBox="0 0 64 64" aria-hidden="true"><path fill-rule="evenodd" d="M32 6a26 26 0 1 0 0 52 26 26 0 0 0 0-52Zm0 6a20 20 0 1 1 0 40 20 20 0 0 1 0-40Z"/><path fill-rule="evenodd" d="M32 18a14 14 0 1 0 0 28 14 14 0 0 0 0-28Zm0 6a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"/><circle cx="32" cy="32" r="4"/></svg>`,
   conflict: `<svg viewBox="0 0 64 64" aria-hidden="true"><path transform="rotate(45 32 32)" d="${conflictSword}"/><path transform="rotate(-45 32 32)" d="${conflictSword}"/></svg>`,
   maritime: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 40 H56 L49 51 H15 Z M22 28 H42 V40 H22 Z M30 20 H36 V28 H30 Z"/></svg>`,
   military: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${militaryStar}"/></svg>`,
@@ -377,19 +395,7 @@ async function ensureLayer(id, force = false) {
   }
 
   try {
-    if (id === "seismic") {
-      state.data.set(id, await fetchLayer(id));
-    } else if (id === "fires" || id === "weather" || id === "ports") {
-      state.data.set(id, await fetchLayer(id, true));
-    } else if (id === "aviation" || id === "military-air") {
-      state.data.set(id, await fetchLayer(id, true));
-    } else if (id === "telegram" || id === "space" || id === "crypto" || id === "sanctions" || id === "news") {
-      state.data.set(id, await fetchLayer(id));
-    } else if (id === "cyber") {
-      state.data.set(id, await fetchLayer(id));
-    } else if (id === "maritime") {
-      state.data.set(id, await fetchLayer(id, true));
-    }
+    state.data.set(id, await fetchLayer(id, BOUNDS_LAYERS.has(id)));
     state.fetched.add(id);
   } catch (error) {
     state.data.set(id, [{
@@ -766,6 +772,23 @@ function buildIconLayer(id, data) {
         getPosition: (d) => [d.lon, d.lat],
         getSize: () => 22,
         getColor: () => [...(palette.get("cctv") || [255, 255, 255]), 240],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "gdelt") {
+      return new deck.IconLayer({
+        id: "gdelt-icons",
+        data,
+        pickable: true,
+        iconAtlas: gdeltIconAtlas,
+        iconMapping: gdeltIconMapping,
+        getIcon: () => "gdelt",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 16 + Math.min(14, (d.severity || 1) * 3),
+        getColor: (d) => d.severity >= 4 ? [232, 121, 249, 245] : [216, 180, 254, 225],
         sizeUnits: "pixels",
         billboard: true,
         onClick: ({ object }) => object && showDetail(object)
@@ -1153,7 +1176,7 @@ async function runIntelLookup() {
     const payload = await fetchJson(route);
     result.innerHTML = kind === "whois"
       ? renderWhois(payload)
-      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 2400))}</pre>`;
+      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 6000))}</pre>`;
   } catch (error) {
     result.textContent = error.message;
   }
