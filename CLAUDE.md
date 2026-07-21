@@ -52,6 +52,7 @@ Recent (2026-07-21) — deferred-source pass (#2):
 - **Standing lesson (now twice over): a deferral note goes stale exactly like a catalog row.** Both 2026-07-19 deferrals named a plausible cause ("endpoint relocated") that was not the actual obstacle. Re-probe before trusting one.
 
 Next:
+- **API keys verified 2026-07-21** — see `docs/API-KEY-STATUS.md`. 10/13 keyed providers working; 3 open: **UCDP** (`Invalid or inactive API token` — needs activation; GDELT covers conflict keyless), **ReliefWeb** (awaiting appname approval — `RELIEFWEB_APPNAME` holds a placeholder note → 403; GDACS keyless), **AISStream** (NOT a key problem — `stream.aisstream.io` TCP 443 unreachable from the Mac; verify on the homelab `ubuntu-g2`). Probe: `scratchpad/probe-keys.mjs` pattern, one authenticated request per provider, Slack deliberately excluded.
 - IAEA PRIS remains skipped (no API). No deferred sources left in `docs/FUTURE-DATA-SOURCES.md`.
 - README phase 7: authenticated higher-quota adapters (needs real keys).
 - README phase 7: authenticated higher-quota adapters (needs real keys).

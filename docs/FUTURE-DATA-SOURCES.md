@@ -304,7 +304,14 @@ far more complete than any one new feed would.
 - **Geofence + keyword alert rules engine** — build on the existing Slack notify: "alert if
   any military aircraft enters this bbox" / "any sanctioned vessel in this strait."
 - **Cross-source correlation** — link an IP from a cyber feed → a sanctions hit → a geolocation.
-- **MITRE ATT&CK mapping** — tag cyber/KEV items with technique IDs for analyst context.
+- **MITRE ATT&CK mapping** — tag cyber/KEV items with technique IDs for analyst context. **PROBED 2026-07-21: feasible but weak — decision open.**
+  - CISA KEV itself carries **no ATT&CK data at all** (its fields are cveID/vendor/product/dates/`cwes`). A regex for `T\d{4}` appears to hit 36 entries; all are false positives from Apple `support.apple.com/HT212975` URLs.
+  - A purpose-built mapping does exist: Center for Threat-Informed Defense **Mappings Explorer**, `mappings/kev/attack-16.1/kev-07.28.2025/enterprise/*.json` — **Apache-2.0**, one 1.2 MB file, clean shape (`mapping_objects[]` with `capability_id` = CVE, `attack_object_id` = T####, `attack_object_name`, `comments`).
+  - **Coverage is the problem: 419 of 1,651 current KEV entries = 25.4%.** Uncovered skews *recent* — 167 added in 2026, 122 in 2025 — so the newest, most operationally relevant items are the least mapped.
+  - **The data is frozen.** Newest snapshot is 07/28/2025 (~12 months old). The repo is alive (pushed 2026-07-08) but the last commit touching `mappings/kev` was cosmetic ("fix link formatting"); the last real data addition was 2025-08-28. Prior cadence was ~5 months and it has now missed two cycles, so coverage **decays with every KEV addition**.
+  - Mappings are concentrated: T1059 (170) and T1190 (157) are 28% of all objects, so even a mapped CVE often yields a coarse verdict.
+  - Useful finding: the mapping file carries `attack_object_name` inline, so the **53 MB ATT&CK STIX bundle is NOT needed** to display technique names.
+  - If built: bundle it as a **static dataset** (frozen upstream = a build-time concern, same call as WRI power plants), badge it on the cyber detail card only — never as a filter or layer dimension — and give "no public mapping" an explicit state, per the IP-intel four-state lesson (absent must not read as "no technique applies").
 
 ---
 

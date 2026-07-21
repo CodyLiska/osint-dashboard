@@ -147,7 +147,8 @@ The hardened Dockerfile makes the app **write nothing to disk** and run as non-r
 - **Phase 4 — frontend "What changed" panel (optional).** A recon-tab or topbar affordance calling `/api/changes?since=<lastVisit>`; surface added/closed counts per layer, click-to-fly. Reuses the existing detail-card renderer via stored `payload`. Pure client + the Phase 2 API; no new backend.
   - **Verify:** Playwright — appear/close a mocked event, confirm it shows in the panel and flies on click.
 
-- **Phase 5 — timeline scrubber + durable alerts (future, deferred).** Needs a second append-only `entity_observations` table (mutable fields over time) for true point-in-time replay, and an `alert_state` table so the geofence/keyword engine (FUTURE-DATA-SOURCES cross-cutting) stops re-firing across restarts. Scoped separately — do not pull into this plan.
+- **Phase 5 — timeline scrubber (future, deferred).** Needs a second append-only `entity_observations` table (mutable fields over time) for true point-in-time replay. Scoped separately — do not pull into this plan.
+  - **The durable-alerts half of this phase is already DONE** (alert-rules Phase 2, 2026-07-20). This entry used to also call for an `alert_state` table so the geofence/keyword engine stopped re-firing across restarts; `alert_log` — PK `(rule_id, layer, entity_id, reason)`, `INSERT OR IGNORE` returning is-new, so the insert *is* the dedupe — solved exactly that, and `alert_state` was never built. Phase 5 is now only the scrubber.
 
 ## Testing (zero-dep, `node:test`)
 
