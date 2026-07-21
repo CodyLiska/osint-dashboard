@@ -18,7 +18,27 @@ Nothing here is committed to. This is a planning catalog — drill into any row 
 
 ## Status (updated 2026-07-20)
 
-**25 sources implemented across 5 batches** — see the `DONE` markers on the rows below. 2 deferred (`ransomware.live` API relocated 302→404; `GPSJam` data host moved, path 404s), 1 skipped for having no API (`IAEA PRIS`, see §12).
+**26 sources implemented across 5 batches** — see the `DONE` markers on the rows below. 1 blocked (`GPSJam` — endpoints alive, blocked on H3→lat/lon decoding under the zero-dep rule), 1 skipped for having no API (`IAEA PRIS`, see §12). `ransomware.live` was un-deferred on 2026-07-21 via its keyless RSS feed.
+
+### GPSJam: the decision that is actually open
+
+The data is real, current and free; the only question is how to turn an H3 res-4
+cell id into a coordinate without an npm runtime dependency:
+
+1. **Build-time centroid table.** Generate a res-4 `cell → [lon, lat]` map once
+   with `npx h3-js` (a throwaway build-script dep, never in `package.json`, same
+   shape as `scripts/build-power-plants.mjs`), bundle it, and look cells up at
+   runtime. Cost: ~288k cells globally, roughly 3–6 MB as JSON. It lives
+   server-side and only the ~500 bad-aircraft cells per day reach the browser,
+   so the payload is small — but it is by far the largest bundled asset.
+2. **Implement `cellToLatLng` by hand.** Correct but genuinely involved
+   (icosahedral face lookup, gnomonic projection, IJK coordinates); several
+   hundred lines of maths that is easy to get subtly and silently wrong.
+3. **Skip it.** GPS interference is interesting but adjacent to the dashboard's
+   core, and options 1 and 2 both cost more than any other single source has.
+
+Option 1 is the recommendation if it is wanted at all — it is the only one where
+correctness comes from a known-good library rather than from a hand port.
 
 - **Batch 1 (core keyless):** GDELT, abuse.ch (ThreatFox / URLhaus / Feodo), Shodan InternetDB, CelesTrak.
 - **Batch 2 (hazards + conflict / cyber-IP):** GDACS, UCDP GED (optional-keyed), NWS warning polygons; Tor exit, Spamhaus DROP, MalwareBazaar (optional-keyed), crt.sh.
@@ -85,7 +105,7 @@ These span integration types, so an **Integration** column is added.
 
 | Source          | Endpoint                                | Key      | License              | Reliability                 | Integration    | What it adds                                                                                                                    | Effort     |
 | --------------- | --------------------------------------- | -------- | -------------------- | --------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **GPSJam**      | `gpsjam.org` (daily GeoJSON)            | none     | Open                 | Good                        | layer          | DEFERRED 2026-07-19: data host moved (gpsjam.org -> gpsjam.obliscence.com) and the `/data/*-h3_4.json` path 404s on both; real data URL not discoverable without JS-tracing. Revisit | Medium     |
+| **GPSJam**      | `gpsjam.org/data/*.csv`                 | none     | Open                 | Good                        | layer          | BLOCKED 2026-07-21 on H3 decoding, NOT on a dead endpoint. Endpoints are alive and current (`data/manifest.csv` lists dates through yesterday; `data/YYYY-MM-DD-h3_4.csv` returns 44.5k rows). The 2026-07-19 note was wrong about the format: it is **gzipped CSV, never JSON**, which is why every `.json` probe 404'd. Real blocker: rows are keyed by **H3 cell id at resolution 4** (`84005c7ffffffff`) with no coordinates, and `cellToLatLng` needs the H3 algorithm — an npm dep the zero-dep rule forbids at runtime. Options in §GPSJam note below | Medium     |
 | **APRS.fi**     | `api.aprs.fi`                           | free-reg | Free non-commercial  | Good                        | layer          | Live amateur-radio station positions (APRS-IS). Ground-based emitter presence                                                   | Medium     |
 | **SatNOGS**     | `network.satnogs.org`, `db.satnogs.org` | none     | Open                 | Good                        | layer / recon  | Open satellite ground-station network + radio observation DB. Pairs with the satellite layer                                    | Medium     |
 | **FCC ULS**     | `fcc.gov` ULS (bulk / query)            | none     | US Gov public domain | Good                        | recon / enrich | US transmitter/callsign license DB — resolve a callsign or licensee to location                                                 | Low–Medium |
@@ -154,7 +174,7 @@ Extends §1 Feodo / §2 URLhaus·ThreatFox with victim + phishing intelligence.
 
 | Source                  | Endpoint                  | Key      | License               | Reliability                   | Integration    | What it adds                                                                                                                                                                                           | Effort     |
 | ----------------------- | ------------------------- | -------- | --------------------- | ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| **ransomware.live**     | `api.ransomware.live`     | none     | Free                  | Good                          | recon / layer  | DEFERRED 2026-07-19: API relocated (documented endpoints 302->404); revisit when the current endpoint/auth is confirmed                                                                               | Low–Medium |
+| **ransomware.live**     | `ransomware.live/rss.xml` | none     | Free                  | Good                          | layer          | DONE 2026-07-21 (`ransomware` layer, keyless). The 2026-07-19 deferral was half right: the JSON API did move — it is now `api-pro.ransomware.live` behind a free-but-required key — but the **RSS feed is keyless and carries everything needed** (victim, group, ISO2 country, disclosure time, last 200). Placed on country centroids; 5 of 200 carry `N/A` country and are dropped rather than guessed | Low–Medium |
 | **OpenPhish**           | `openphish.com/feed.txt`  | none     | Free (community feed) | Good                          | recon / enrich | Active phishing-URL feed. Flag/enrich indicators against live phishing infra                                                                                                                           | Low        |
 | **PhishTank**           | `phishtank.org` API       | free-reg | Free                  | Medium — key issuance limited | recon          | Community-verified phishing URL lookup                                                                                                                                                                 | Low        |
 | **MalwareBazaar**       | `bazaar.abuse.ch` API     | none     | CC0                   | Good                          | recon / enrich | DONE 2026-07-19 as an optional-keyed Intel-tab "File hash" lookup (`malwareBazaarLookup`, reuses `ABUSE_CH_AUTH_KEY`). Completes the abuse.ch suite                                                    | Low        |

@@ -10,6 +10,17 @@ export function escapeHtml(value) {
   }[char]));
 }
 
+// Identity of a viewport-scoped request: the bbox at exactly the precision
+// fetchLayer puts on the wire. Two viewports with the same key produce a
+// byte-identical request, so a viewport-triggered refresh between them has
+// nothing to fetch. Rounding here (rather than comparing raw floats against an
+// epsilon) means the skip is provable rather than a guess at "close enough".
+export const BOUNDS_PRECISION = 2;
+
+export function boundsKey(south, west, north, east) {
+  return [south, west, north, east].map((n) => Number(n).toFixed(BOUNDS_PRECISION)).join(",");
+}
+
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.

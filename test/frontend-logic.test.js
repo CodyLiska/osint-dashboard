@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   escapeHtml, clusterPoints, shouldCluster, filterBySeverity, advancePosition,
   byPriority, buildFeed, detailRows, snapshotEntity, kvRow, extLink,
-  sanctionDetail, intelLinks, cveDetail, relativeTime, ruleHealth
+  sanctionDetail, intelLinks, cveDetail, relativeTime, ruleHealth, boundsKey
 } from "../public/logic.js";
 
 test("escapeHtml neutralizes every HTML metacharacter", () => {
@@ -219,4 +219,31 @@ test("a rule that fired long ago reads as quiet, not as never", () => {
   const health = ruleHealth({ enabled: true, fires: 1, lastFiredAt: "2026-06-01T00:00:00.000Z" }, now);
   assert.equal(health.state, "quiet");
   assert.match(health.label, /1 fire, none recently/);
+});
+
+test("boundsKey rounds to the precision that actually goes on the wire", () => {
+  // fetchLayer sends toFixed(2), so the key must quantise identically — this is
+  // what makes "same key => byte-identical request" true rather than approximate.
+  assert.equal(boundsKey(35.6789, 139.6789, 36.1234, 140.1234), "35.68,139.68,36.12,140.12");
+  assert.equal(boundsKey(-0.004, -0.004, 0.004, 0.004), "-0.00,-0.00,0.00,0.00");
+});
+
+test("boundsKey collapses sub-precision viewport nudges to one key", () => {
+  // The point of the skip: a move too small for the server to see must not
+  // trigger a refetch. A pane toggle shifts the centre without changing this.
+  const a = boundsKey(10.001, 20.001, 30.001, 40.001);
+  const b = boundsKey(10.002, 20.002, 30.002, 40.002);
+  assert.equal(a, b);
+});
+
+test("boundsKey separates viewports the server would see as different", () => {
+  assert.notEqual(boundsKey(10, 20, 30, 40), boundsKey(10.01, 20, 30, 40));
+});
+
+test("boundsKey coerces numeric strings so a round-trip through the query is stable", () => {
+  // fetchLayer splits the key back out into query params; feeding those values
+  // back in must produce the same key.
+  const key = boundsKey(1.5, 2.5, 3.5, 4.5);
+  const [s, w, n, e] = key.split(",");
+  assert.equal(boundsKey(s, w, n, e), key);
 });

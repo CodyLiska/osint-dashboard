@@ -2,7 +2,7 @@ import { LAYER_GROUPS, layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
-  CLUSTER_MAX_ZOOM
+  boundsKey, CLUSTER_MAX_ZOOM
 } from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
@@ -29,13 +29,20 @@ async function loadGazetteer() {
 // or a full quota must never break the dashboard.
 const STORAGE_KEY = "osiris.ui.v1";
 const RECON_HISTORY_LIMIT = 20;
+// Keep in step with --pane-transition in styles.css so the camera pan tracks the
+// pane's slide.
+const PANE_TRANSITION_MS = 220;
 const DEFAULT_LAYERS = ["conflict", "seismic", "ports", "chokepoints", "telegram"];
 
 function loadStore() {
+  // The recon pane holds burst-use tooling, so it starts closed and gives the
+  // width back to the map. Spread saved LAST so an explicit `hideRight: false`
+  // survives; only an absent key picks up the default.
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
+    return { hideRight: true, ...saved };
   } catch {
-    return {};
+    return { hideRight: true };
   }
 }
 
@@ -56,6 +63,10 @@ const state = {
   fetched: new Set(),
   refreshing: new Set(),
   lastFetched: new Map(),
+  // Per layer: the bbox key its current data was fetched for, and whether a map
+  // move arrived while that fetch was still in flight. See refreshForViewport().
+  fetchedBounds: new Map(),
+  staleViewport: new Set(),
   minSeverity: Math.min(5, Math.max(1, Number(store.minSeverity) || 1)),
   deckOverlay: null,
   map: null
@@ -535,14 +546,27 @@ async function ensureLayer(id, force = false) {
   }
 }
 
+function currentBoundsKey() {
+  if (!state.map) return "";
+  const b = state.map.getBounds();
+  return boundsKey(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+}
+
 async function fetchLayer(id, withBounds = false) {
   const params = new URLSearchParams();
   if (withBounds && state.map) {
-    const b = state.map.getBounds();
-    params.set("lamin", b.getSouth().toFixed(2));
-    params.set("lomin", b.getWest().toFixed(2));
-    params.set("lamax", b.getNorth().toFixed(2));
-    params.set("lomax", b.getEast().toFixed(2));
+    // Derive the query from the key so the recorded bbox and the one on the wire
+    // cannot drift apart.
+    const key = currentBoundsKey();
+    const [lamin, lomin, lamax, lomax] = key.split(",");
+    params.set("lamin", lamin);
+    params.set("lomin", lomin);
+    params.set("lamax", lamax);
+    params.set("lomax", lomax);
+    // Recorded before the await, so a failed fetch still counts as "this bbox was
+    // attempted" — matching lastFetched, and stopping a broken source from being
+    // retried on every single moveend.
+    state.fetchedBounds.set(id, key);
   }
   const suffix = params.toString() ? `?${params}` : "";
   const payload = await fetchJson(`/api/layers/${id}${suffix}`);
@@ -1307,7 +1331,29 @@ function changeGroupHtml(title, dir, items) {
 }
 
 async function refreshViewportAware() {
-  await Promise.all([...VIEWPORT_AWARE_LAYERS].map((id) => refreshLiveLayer(id)));
+  await Promise.all([...VIEWPORT_AWARE_LAYERS].map((id) => refreshForViewport(id)));
+}
+
+// A map move wants the layer to match wherever the map ENDED UP, which plain
+// refreshLiveLayer cannot express — it drops any request that arrives while a
+// fetch is in flight. During a fast pan the moveend that lands mid-fetch was the
+// one that mattered, so the layer settled a pan behind the map.
+//
+// So: skip when the bbox the server would see is unchanged (a pane toggle, or a
+// nudge inside the rounding, is not navigation), and when a move lands mid-fetch
+// remember it and go again afterwards instead of dropping it. Repeated moves
+// coalesce into one trailing re-check rather than a queue of stale fetches.
+//
+// Time-based polling deliberately does NOT come through here: it wants fresh data
+// for the SAME bbox, which is exactly what the skip suppresses.
+async function refreshForViewport(id) {
+  if (!state.enabled.has(id)) return;
+  if (state.fetchedBounds.get(id) === currentBoundsKey()) return;
+  if (state.refreshing.has(id)) {
+    state.staleViewport.add(id);
+    return;
+  }
+  await refreshLiveLayer(id);
 }
 
 async function refreshLiveLayer(id) {
@@ -1320,6 +1366,12 @@ async function refreshLiveLayer(id) {
   } finally {
     state.refreshing.delete(id);
   }
+  // A move deferred while the lock was held is serviced here rather than dropped.
+  // This lives after the lock release (not in refreshForViewport) because a
+  // timed poll holds the same lock, and a poll can swallow a moveend just as
+  // easily as a pan can. refreshForViewport re-reads the CURRENT bbox, so a burst
+  // of moves collapses into one trailing fetch for wherever the map settled.
+  if (state.staleViewport.delete(id)) await refreshForViewport(id);
 }
 
 function pollDueLayers() {
@@ -1696,10 +1748,37 @@ async function exportSnapshot() {
   downloadJson(snapshot, `osiris-snapshot-${stamp}.json`);
 }
 
+// The recon pane overlays the map instead of holding a grid column, so the
+// visible map area is narrower than the canvas. MapLibre's camera padding is
+// sticky transform state, so setting it here re-centres EVERY camera move —
+// all seven flyTo call sites, plus fitBounds and the restored viewport — without
+// any of them knowing the pane exists.
+//
+// Width comes from the live element rather than a constant so the padding cannot
+// drift from --recon-width, and the breakpoint is read as computed `position`
+// rather than duplicating the 1081px media query in JS: below it the pane stacks
+// under the map and overlays nothing.
+function reconOverlayWidth() {
+  const recon = document.querySelector(".recon");
+  if (!recon || store.hideRight) return 0;
+  if (getComputedStyle(recon).position !== "absolute") return 0;
+  return recon.getBoundingClientRect().width;
+}
+
+function syncMapPadding(animate) {
+  if (!state.map) return;
+  const padding = { right: reconOverlayWidth() };
+  // Either form shifts the rendered extent by half the padding; easing just makes
+  // it track the CSS slide instead of jumping.
+  if (animate) state.map.easeTo({ padding, duration: PANE_TRANSITION_MS });
+  else state.map.setPadding(padding);
+}
+
 // Collapse/restore the left (layers) and right (recon) panes. State persists so a
-// preferred single-pane layout survives reloads. The map is resized after each
-// toggle because its container width changes.
-function applyPaneState() {
+// preferred single-pane layout survives reloads. The left pane still holds a grid
+// column, so the map is resized after a toggle; the recon overlay never changes
+// the canvas size and only moves the camera padding.
+function applyPaneState({ animate = true } = {}) {
   const shell = document.querySelector(".app-shell");
   shell.classList.toggle("hide-left", Boolean(store.hideLeft));
   shell.classList.toggle("hide-right", Boolean(store.hideRight));
@@ -1710,7 +1789,12 @@ function applyPaneState() {
   right.textContent = store.hideRight ? "‹" : "›";
   left.setAttribute("aria-pressed", String(Boolean(store.hideLeft)));
   right.setAttribute("aria-pressed", String(Boolean(store.hideRight)));
-  if (state.map) requestAnimationFrame(() => state.map.resize());
+  if (state.map) {
+    requestAnimationFrame(() => {
+      state.map.resize();
+      syncMapPadding(animate);
+    });
+  }
 }
 
 function wirePanes() {
@@ -1724,7 +1808,11 @@ function wirePanes() {
     persist();
     applyPaneState();
   });
-  applyPaneState();
+  // Crossing the overlay breakpoint changes whether the pane covers the map at
+  // all, so the padding has to be recomputed — otherwise a window narrowed below
+  // 1081px keeps padding for a pane that is now stacked underneath.
+  window.addEventListener("resize", () => syncMapPadding(false));
+  applyPaneState({ animate: false });
 }
 
 function wireSeverityFilter() {

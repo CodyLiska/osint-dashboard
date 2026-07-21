@@ -1,6 +1,7 @@
 # Implementation Plan — Recon Pane Layout
 
-Status: **proposed**, not started. Log a `decisions-log.md` entry on execution.
+Status: **Phases 1 and 2 done** (2026-07-20). Remaining: the tab ceiling (not yet
+hit) and the four open questions at the end.
 
 ## Goal
 
@@ -40,7 +41,7 @@ because the panes were too big.
 
 ---
 
-## Phase 1 — Recon collapsed by default (cheap, do first)
+## Phase 1 — Recon collapsed by default — DONE (2026-07-20)
 
 The pane stays exactly as it is; it just starts closed. Map goes **43% → 73%** at
 1280px, and the pane is one click away on the existing toggle.
@@ -73,51 +74,94 @@ change to anyone already using it.
 `›` opens it and that choice survives a reload; the map canvas resizes (no
 letterboxing).
 
+**Verified** via Playwright, measured not eyeballed:
+
+| Check | Result |
+| ----- | ------ |
+| 1280, fresh profile | map 940px = **73%** (was 550px / 43%), pane closed |
+| Explicit open + reload | `hideRight:false` persists, back to 550px / 43% |
+| 900px (stacked) | `hide-right` class applies but is inert — pane still 885×280 |
+| 8 rapid toggles | canvas width tracks region every time, 0 console errors |
+
+Testing gotcha for Phase 2: clearing `localStorage` from a live page does **not**
+give a fresh profile — the in-memory `store` is rewritten whole by the next
+`persist()` (the map viewport handler fires on resize), restoring the old
+`hideRight`. Clear and reload in the same evaluate call.
+
 ---
 
-## Phase 2 — Recon as an overlay (structural)
+## Phase 2 — Recon as an overlay — DONE (2026-07-20)
 
-Burst-use tooling should not hold permanent width. Make the recon pane slide
+Burst-use tooling should not hold permanent width. The recon pane now slides
 **over** the map rather than displacing it.
 
-**Shape of the change:**
+**What was built:**
 
-- `.app-shell` becomes two columns (sidebar + map). The recon pane leaves the
-  grid entirely.
-- `.recon` becomes `position: absolute` within `.map-region`, pinned right,
-  full height, translated off-canvas when closed:
-  `transform: translateX(100%)` → `translateX(0)`, with a transition.
-- The existing `#toggle-right` button drives the same `store.hideRight` flag —
-  no change to the state model or persistence.
-- `state.map.resize()` on toggle becomes **unnecessary** (the canvas no longer
-  changes size), which removes a class of resize-timing bug.
-- Guard the whole thing behind the existing `@media (min-width: 1081px)`; below
-  that the stacked layout is unchanged.
+- `.app-shell` is two columns (sidebar + map) above 1081px; the recon pane leaves
+  the grid.
+- `.recon` is `position: absolute` within `.app-shell` — **not** `.map-region` as
+  planned, which avoided moving it in the DOM. It is pinned right, full height,
+  `translateX(100%)` when closed, with `visibility: hidden` delayed until the
+  slide finishes so an off-canvas pane is not tab-focusable.
+- `#toggle-right` drives the same `store.hideRight` flag — state model unchanged.
+- The canvas no longer changes size on toggle (measured: 940px in both states).
+- All of it sits inside `@media (min-width: 1081px)`; below that the pane is
+  `position: static` and the flag is inert.
+- Geometry lives in `--recon-width` / `--pane-transition` on `:root`.
 
-**The thing that will bite: map centring.** Once the pane floats over the map,
-the *visible* map area is narrower than the canvas, so `flyTo` centres entities
-behind the overlay. Every fly path is affected — search, feed clicks, change
-clicks, alert clicks. MapLibre takes a `padding` option:
+**Map centring — solved more cheaply than planned.** MapLibre's camera `padding`
+is **sticky transform state**, not a per-call option. So `syncMapPadding()` sets
+it once on toggle and *every* camera move is re-centred — all seven `flyTo` sites,
+plus `fitBounds` and the restored viewport — **without touching a single call
+site**. The planned `flyToEntity()` helper was not needed and was not built.
 
-```js
-state.map.flyTo({ center: [lon, lat], zoom, padding: { right: reconOpen ? 390 : 0 } });
-```
+`reconOverlayWidth()` reads the live element width (so padding cannot drift from
+`--recon-width`) and detects the breakpoint via computed `position === "absolute"`
+rather than duplicating `1081px` in JS.
 
-There are **7 `flyTo` call sites** today (`public/app.js` lines 584, 1181, 1226,
-1284, 1605, 1615, 1623 — cluster zoom, feed click, change click, alert click,
-recon history, gazetteer search, geocoded search). Route them through one
-`flyToEntity()` helper that applies the current padding, rather than patching
-each independently. Doing this is what
-makes the overlay feel correct instead of subtly broken.
+**Correction to this plan's premise.** It claimed an un-padded `flyTo` centres
+entities *behind* the overlay. Measured against MapLibre 4.7.1, that is only true
+in a narrow band — the centre of the canvas is left of the overlay at most widths:
 
-**Second consideration: the detail card.** `.entity-detail` is absolutely
-positioned bottom-right *inside* `.map-region`, which is exactly where the
-overlay will sit. Either shift it left by the pane width when the pane is open
-(same padding value), or dock it to the bottom-left.
+| Viewport | Map region | Bare `flyTo` x | Overlay starts | Verdict |
+| -------- | ---------- | -------------- | -------------- | ------- |
+| 1081 | 741 | 371 | 351 | **hidden** (−19px) |
+| 1120 | 780 | 390 | 390 | exactly at the edge |
+| 1280 | 940 | 470 | 550 | visible, 80px clearance |
+| 1440 | 1100 | 550 | 710 | visible, 160px |
+| 1920 | 1580 | 790 | 1190 | visible, 400px |
 
-*Verify:* open/close animates without resizing the canvas; clicking an alert with
-the pane open puts the entity in the *visible* half, not underneath it; the
-detail card and the pane never overlap; below 1081px nothing changed.
+Padded, the target lands at the centre of the *visible* strip every time (275 at
+1280). So padding is still right — it is just fixing "off-centre and crowded
+against the pane, hidden below ~1120px", not "always hidden".
+
+**The thing that actually bit: the topbar.** The plan flagged `.entity-detail`
+but missed that `.topbar` is also pinned to the map region's right edge — and
+`#toggle-right` lives at its right end. With the overlay open the close button sat
+at x=1220 underneath a pane starting at x=890 (`elementFromPoint` returned a recon
+`tab`), so **the pane could be opened but not closed**. Both `.topbar` and
+`.entity-detail` now shift by `calc(var(--recon-width) + 18px)` when open.
+
+**Known cost:** animating the padding fires `moveend`, and `refreshViewportAware()`
+refetches unconditionally on `moveend` — so toggling the pane triggers one Overpass
+refetch when the `infrastructure` layer is enabled. A toggle is a deliberate,
+infrequent action, so this was accepted rather than adding a suppression flag. If
+Overpass rate-limiting becomes a problem, gate `refreshViewportAware` on an actual
+bbox change.
+
+*Verified* (Playwright, measured):
+
+| Check | Result |
+| ----- | ------ |
+| Canvas resize on toggle | none — 940px across 8 toggles, one distinct width |
+| Camera padding | 0 closed / 390 open / 0 below 1081px |
+| Centre drift over 4 open-close pairs | exactly 0 |
+| `#toggle-right` reachable | clickable in both states (872 ≤ 890 when open) |
+| Detail card vs pane | card ends 872, pane starts 890 — no overlap |
+| Fly with pane open | Tokyo lands centred in the visible strip |
+| 1000px stacked | `position: static`, padding 0, layout unchanged |
+| Console errors | 0 |
+| `npm test` | 288 pass |
 
 ---
 
@@ -146,13 +190,19 @@ measuring rather than eyeballing:
 
 ## Open questions
 
+All four were left open by Phase 2 — none blocks it, and each is better answered
+after using the overlay than before.
+
 1. **Should the overlay be dismissible by clicking the map?** Natural for an
-   overlay, but risks closing it accidentally mid-lookup. Leaning no.
+   overlay, but risks closing it accidentally mid-lookup. Not built; still leaning
+   no.
 2. **Should opening a recon tab from elsewhere auto-open the pane?** E.g. an
    alert notification deep-linking to the Alerts tab. Only matters if such links
    are added.
-3. **Is 390px still the right width once it floats?** Wider costs nothing when it
-   overlays rather than displaces, and it would relieve the tab ceiling.
+3. **Is 390px still the right width once it floats?** Now a one-line change —
+   `--recon-width` on `:root`, which both the CSS and the camera padding read. A
+   wider pane costs the map nothing while closed and would relieve the tab
+   ceiling.
 4. **Does the left pane want the same treatment eventually?** Probably not — it
-   is in continuous use — but if the map still feels cramped after Phase 2, that
-   is the next lever.
+   is in continuous use — but if the map still feels cramped, that is the next
+   lever.

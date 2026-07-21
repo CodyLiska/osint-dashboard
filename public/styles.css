@@ -9,6 +9,10 @@
   --accent: #2dd4bf;
   --danger: #fb7185;
   --warn: #fbbf24;
+  /* Recon overlay geometry. app.js reads --recon-width off the element so the
+     map's camera padding cannot drift from the CSS. */
+  --recon-width: 390px;
+  --pane-transition: 220ms;
 }
 
 * {
@@ -42,13 +46,47 @@ select {
   height: 100vh;
 }
 
-/* Collapsible side panes (desktop only; the mobile layout stacks vertically). */
+/* Collapsible side panes (desktop only; the mobile layout stacks vertically).
+
+   The left pane is in continuous use, so it holds a grid column. The recon pane
+   is burst-use tooling, so it leaves the grid entirely and slides *over* the map:
+   the map canvas then keeps its full width and never resizes on toggle. Map
+   centring is handled by camera padding, not by this file — see syncMapPadding()
+   in app.js. */
 @media (min-width: 1081px) {
-  .app-shell.hide-left { grid-template-columns: 1fr minmax(320px, 390px); }
+  .app-shell {
+    position: relative;
+    grid-template-columns: minmax(280px, 340px) 1fr;
+  }
+
+  .app-shell.hide-left { grid-template-columns: 1fr; }
   .app-shell.hide-left .sidebar { display: none; }
-  .app-shell.hide-right { grid-template-columns: minmax(280px, 340px) 1fr; }
-  .app-shell.hide-right .recon { display: none; }
-  .app-shell.hide-left.hide-right { grid-template-columns: 1fr; }
+
+  .recon {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--recon-width);
+    transition: transform var(--pane-transition) ease;
+  }
+
+  /* visibility (not display) keeps the transform animatable; delaying it until
+     the slide finishes stops the pane from being tab-focusable once off-canvas. */
+  .app-shell.hide-right .recon {
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform var(--pane-transition) ease, visibility 0s linear var(--pane-transition);
+  }
+
+  /* Map-region chrome is pinned to the right edge, which is exactly where the
+     overlay lands — shift it clear while the pane is open. The topbar matters
+     most: #toggle-right lives at its right end, so without this the button that
+     closes the pane sits underneath the pane (clicks land on a recon tab). */
+  .app-shell:not(.hide-right) .topbar,
+  .app-shell:not(.hide-right) .entity-detail {
+    right: calc(var(--recon-width) + 18px);
+  }
 }
 
 .pane-toggle {
@@ -294,6 +332,7 @@ h1 {
   display: flex;
   gap: 12px;
   align-items: center;
+  transition: right var(--pane-transition) ease;
 }
 
 .search-box {
@@ -351,6 +390,7 @@ h1 {
   width: min(390px, calc(100% - 36px));
   max-height: calc(100vh - 120px);
   overflow: auto;
+  transition: right var(--pane-transition) ease;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;

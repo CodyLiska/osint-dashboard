@@ -18,6 +18,7 @@ import { iodaLayer } from "./ioda.js";
 import { cloudflareRadarLayer } from "./cloudflare.js";
 import { advisoriesLayer } from "./advisories.js";
 import { reliefWebLayer } from "./reliefweb.js";
+import { ransomwareLayer } from "./ransomware.js";
 import { infrastructureLayer } from "./overpass.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
@@ -80,6 +81,11 @@ const LAYERS = [
   // record id at bounded volume → persistable. Safe now that persistSnapshot
   // skips unconfigured snapshots instead of closing the whole history.
   { id: "reliefweb", sourceName: "ReliefWeb (UN OCHA)", load: () => reliefWebLayer(), persist: true, geo: "country" },
+  // Keyless RSS. Each disclosure is a discrete event with a stable id at bounded
+  // volume (last 200), so it persists cleanly — a new victim is a real "appeared"
+  // in What Changed. geo:"country" because the feed reports only a country code,
+  // so an entity sits on the centroid, not at the victim's actual location.
+  { id: "ransomware", sourceName: "Ransomware.live", load: () => ransomwareLayer(), persist: true, geo: "country" },
   // OSM infrastructure, queried per viewport. persist:false — the entity set is
   // a function of where the user is looking, so reconcile would close every
   // record outside the current view on each pan.
