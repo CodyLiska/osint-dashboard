@@ -53,6 +53,7 @@ export const layerDefinitions = [
   { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true, group: "air" },
   { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true, group: "cyber" },
   { id: "ransomware", label: "Ransomware Victims", color: [190, 24, 93], live: true, group: "cyber" },
+  { id: "gpsjam", label: "GPS Interference", color: [250, 204, 21], live: true, group: "air" },
   { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict", group: "conflict" },
   { id: "telegram", label: "Telegram OSINT", color: [34, 211, 238], live: true, group: "feeds" },
   { id: "crypto", label: "Crypto Intel", color: [234, 179, 8], live: true, group: "cyber" },

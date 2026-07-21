@@ -19,6 +19,7 @@ import { cloudflareRadarLayer } from "./cloudflare.js";
 import { advisoriesLayer } from "./advisories.js";
 import { reliefWebLayer } from "./reliefweb.js";
 import { ransomwareLayer } from "./ransomware.js";
+import { gpsJamLayer } from "./gpsjam.js";
 import { infrastructureLayer } from "./overpass.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
@@ -86,6 +87,13 @@ const LAYERS = [
   // in What Changed. geo:"country" because the feed reports only a country code,
   // so an entity sits on the centroid, not at the victim's actual location.
   { id: "ransomware", sourceName: "Ransomware.live", load: () => ransomwareLayer(), persist: true, geo: "country" },
+  // Keyless daily CSV keyed by H3 cell (placed via the bundled centroid table).
+  // persist:false on MEASURED grounds: consecutive days overlap only ~75%, so
+  // reconcile would push ~1,200 appear/disappear rows a day into What Changed —
+  // and most of those are a cell crossing the 2% threshold, a measurement
+  // artifact rather than an event. geo:"real" — an H3 centroid is a true
+  // location, not a country stand-in.
+  { id: "gpsjam", sourceName: "GPSJam", load: () => gpsJamLayer(), persist: false, geo: "real" },
   // OSM infrastructure, queried per viewport. persist:false — the entity set is
   // a function of where the user is looking, so reconcile would close every
   // record outside the current view on each pan.

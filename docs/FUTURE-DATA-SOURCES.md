@@ -18,27 +18,35 @@ Nothing here is committed to. This is a planning catalog — drill into any row 
 
 ## Status (updated 2026-07-20)
 
-**26 sources implemented across 5 batches** — see the `DONE` markers on the rows below. 1 blocked (`GPSJam` — endpoints alive, blocked on H3→lat/lon decoding under the zero-dep rule), 1 skipped for having no API (`IAEA PRIS`, see §12). `ransomware.live` was un-deferred on 2026-07-21 via its keyless RSS feed.
+**27 sources implemented across 5 batches** — see the `DONE` markers on the rows below. 0 deferred, 1 skipped for having no API (`IAEA PRIS`, see §12). Both 2026-07-19 deferrals were cleared on 2026-07-21: `ransomware.live` via its keyless RSS feed, `GPSJam` via a build-time H3 centroid table. **Both deferral notes had named the wrong cause** — a deferral note goes stale exactly like a catalog row, so re-probe before trusting one.
 
-### GPSJam: the decision that is actually open
+### GPSJam: how H3 cells get placed (build-time centroid table)
 
-The data is real, current and free; the only question is how to turn an H3 res-4
-cell id into a coordinate without an npm runtime dependency:
+GPSJam keys its data by H3 resolution-4 cell id with no coordinates.
+`cellToLatLng` is the H3 algorithm — icosahedral face lookup, gnomonic
+projection, IJK coordinates — so rather than hand-port several hundred lines of
+maths that fails *silently* when subtly wrong, the conversion is done once
+against the real library and the runtime ships a lookup table.
 
-1. **Build-time centroid table.** Generate a res-4 `cell → [lon, lat]` map once
-   with `npx h3-js` (a throwaway build-script dep, never in `package.json`, same
-   shape as `scripts/build-power-plants.mjs`), bundle it, and look cells up at
-   runtime. Cost: ~288k cells globally, roughly 3–6 MB as JSON. It lives
-   server-side and only the ~500 bad-aircraft cells per day reach the browser,
-   so the payload is small — but it is by far the largest bundled asset.
-2. **Implement `cellToLatLng` by hand.** Correct but genuinely involved
-   (icosahedral face lookup, gnomonic projection, IJK coordinates); several
-   hundred lines of maths that is easy to get subtly and silently wrong.
-3. **Skip it.** GPS interference is interesting but adjacent to the dashboard's
-   core, and options 1 and 2 both cost more than any other single source has.
-
-Option 1 is the recommendation if it is wanted at all — it is the only one where
-correctness comes from a known-good library rather than from a hand port.
+- **Build:** `npm install --no-save h3-js && node scripts/build-h3-centroids.mjs`,
+  then `rm -rf node_modules`. `h3-js` is deliberately never added to
+  `package.json`; the server stays zero-dep and the table is regenerated only if
+  H3 changes its encoding (which the script asserts, rather than assumes).
+- **Encoding was chosen by measurement**, not estimate. At 288,122 cells: naive
+  JSON keyed by the full 15-char id is **16 MB**, short-keyed JSON is **6.3 MB**,
+  the shipped binary is **2.2 MB**. Every id is `84` + 5 variable hex chars +
+  `ffffffff`, so the key is 20 bits and fits a uint32; coordinates are int16
+  scaled ×100 (~1.1 km, against cells ~22 km across). The binary also needs no
+  `JSON.parse`, so the server holds one Buffer instead of a 288k-key object —
+  which matters on a homelab container.
+- **Lookup** is a binary search over the sorted keys (`src/lib/h3.js`), not a
+  Map, for the same heap reason.
+- **Validated against the source of truth:** 5,002 random cells round-tripped
+  against `h3-js` with 0 misses and a worst deviation of 557 m — exactly the
+  ×100 rounding half-step, i.e. quantisation only, no algorithmic error. On live
+  data `meta.unmappedCells` is **0**, and the worst-interference cells land on
+  Kaliningrad, the Black Sea and Kashmir — the documented jamming hotspots,
+  which is the check that would fail loudly if the decoding were wrong.
 
 - **Batch 1 (core keyless):** GDELT, abuse.ch (ThreatFox / URLhaus / Feodo), Shodan InternetDB, CelesTrak.
 - **Batch 2 (hazards + conflict / cyber-IP):** GDACS, UCDP GED (optional-keyed), NWS warning polygons; Tor exit, Spamhaus DROP, MalwareBazaar (optional-keyed), crt.sh.
@@ -105,7 +113,7 @@ These span integration types, so an **Integration** column is added.
 
 | Source          | Endpoint                                | Key      | License              | Reliability                 | Integration    | What it adds                                                                                                                    | Effort     |
 | --------------- | --------------------------------------- | -------- | -------------------- | --------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **GPSJam**      | `gpsjam.org/data/*.csv`                 | none     | Open                 | Good                        | layer          | BLOCKED 2026-07-21 on H3 decoding, NOT on a dead endpoint. Endpoints are alive and current (`data/manifest.csv` lists dates through yesterday; `data/YYYY-MM-DD-h3_4.csv` returns 44.5k rows). The 2026-07-19 note was wrong about the format: it is **gzipped CSV, never JSON**, which is why every `.json` probe 404'd. Real blocker: rows are keyed by **H3 cell id at resolution 4** (`84005c7ffffffff`) with no coordinates, and `cellToLatLng` needs the H3 algorithm — an npm dep the zero-dep rule forbids at runtime. Options in §GPSJam note below | Medium     |
+| **GPSJam**      | `gpsjam.org/data/*.csv`                 | none     | Open                 | Good                        | layer          | DONE 2026-07-21 (`gpsjam` layer, keyless). The 2026-07-19 note was wrong about the format — it is **gzipped CSV, never JSON**, which is why every `.json` probe 404'd. Rows are keyed by **H3 res-4 cell id** with no coordinates, resolved via a bundled build-time centroid table (`src/lib/h3.js`, see §GPSJam note below). Filtered to ≥5 aircraft and ≥2% bad ratio → ~1,500 cells/day with real severity spread | Medium     |
 | **APRS.fi**     | `api.aprs.fi`                           | free-reg | Free non-commercial  | Good                        | layer          | Live amateur-radio station positions (APRS-IS). Ground-based emitter presence                                                   | Medium     |
 | **SatNOGS**     | `network.satnogs.org`, `db.satnogs.org` | none     | Open                 | Good                        | layer / recon  | Open satellite ground-station network + radio observation DB. Pairs with the satellite layer                                    | Medium     |
 | **FCC ULS**     | `fcc.gov` ULS (bulk / query)            | none     | US Gov public domain | Good                        | recon / enrich | US transmitter/callsign license DB — resolve a callsign or licensee to location                                                 | Low–Medium |
