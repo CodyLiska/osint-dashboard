@@ -46,9 +46,10 @@ test("closed disasters are not presented as current situational awareness", asyn
     const { entities, meta } = await reliefWebLayer();
     assert.equal(meta.configured, true);
     assert.deepEqual(entities.map((e) => e.name).sort(), ["Chad Drought", "Sudan Floods"]);
-    // An alert is a forward-looking warning and must outrank an ongoing event.
-    const bySeverity = Object.fromEntries(entities.map((e) => [e.name, e.severity]));
-    assert.ok(bySeverity["Chad Drought"] > bySeverity["Sudan Floods"]);
+    // Status is carried for display but must not drive severity.
+    const byStatus = Object.fromEntries(entities.map((e) => [e.name, e.status]));
+    assert.equal(byStatus["Chad Drought"], "alert");
+    assert.equal(byStatus["Sudan Floods"], "current");
     assert.ok(entities.every((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon)));
   } finally {
     restore();
@@ -77,4 +78,33 @@ test("the v2 envelope is read from fields, tolerating a missing primary country"
     data: [{ id: 7, fields: { name: "X", status: "current", country: [{ name: "Peru" }] } }]
   });
   assert.equal(rows[0].country, "Peru");
+});
+
+test("severity reflects disaster impact, not lifecycle stage", async (t) => {
+  // A disaster's normal progression is alert -> current. Mapping status onto
+  // severity made every disaster appear to get LESS severe as it developed,
+  // which corrupts the severity filter and makes escalation alerting
+  // impossible. See the severity contract in src/lib/normalize.js.
+  const previous = process.env.RELIEFWEB_APPNAME;
+  process.env.RELIEFWEB_APPNAME = "osiris-test";
+  t.after(() => {
+    if (previous) process.env.RELIEFWEB_APPNAME = previous;
+    else delete process.env.RELIEFWEB_APPNAME;
+  });
+
+  const restore = installJsonFetch({
+    data: [
+      disaster(1, "Quake", "current", "Nepal", "Earthquake"),
+      disaster(2, "Slide", "alert", "Nepal", "Land Slide")
+    ]
+  });
+  try {
+    const { entities } = await reliefWebLayer();
+    const bySeverity = Object.fromEntries(entities.map((e) => [e.name, e.severity]));
+    // An earthquake outranks a landslide regardless of which one is merely an
+    // alert and which is already under way.
+    assert.ok(bySeverity.Quake > bySeverity.Slide);
+  } finally {
+    restore();
+  }
 });

@@ -286,11 +286,19 @@ in the app changes.
 `alert_log` table and `hasFired`/`recordFired`. Startup suppression lands here.
 *Verify:* persist tests assert classification and that a cold seed suppresses.
 
-**Phase 3 — Delivery.** `evaluateAlerts()` wired fire-and-forget into
-`handleLayer`; batched Slack formatting reusing `postToSlack`; dry-run mode;
-per-rule cooldown.
-*Verify:* dry-run against live data for a day with a deliberately broad rule,
-then a real geofence over an active seismic region.
+**Phase 3 — Delivery. DONE 2026-07-20.** `src/lib/alerts.js`: `selectAlerts`
+(decides, takes an explicit handle), `formatAlert` (one message per rule), and
+`evaluateAlerts` (the impure wrapper), wired fire-and-forget into `handleLayer`.
+Rules hot-reload by mtime via `currentRules()`. Dry run, per-rule hourly cap,
+and escalation threshold-crossing all implemented.
+*Verified:* end-to-end dry run against live USGS data — 3 rules loaded, real
+quake names/severities/coordinates rendered, truncation and the flood-guard
+summary both fired, and `alert_log` stayed empty while entities still persisted.
+
+> **Found during Phase 3:** with no `SLACK_WEBHOOK_URL` and dry-run off, a real
+> evaluation consumed the dedupe while the message went nowhere — those events
+> could never have alerted again once a webhook was added. The log is now
+> treated as a delivery channel when no webhook is configured.
 
 **Phase 4 — Visibility.** A 7th recon tab, "Alerts", reading `alert_log` via a
 new `GET /api/alerts?since=`, mirroring the "What Changed" tab. Graceful-off
@@ -326,9 +334,20 @@ access; only the thin `loadRules` wrapper needs a temp file.
 2. **Should escalation re-arm?** If severity falls back below the threshold and
    crosses again, is that a second alert or noise? Leaning: re-arm only after the
    entity closes.
-3. **Quiet hours / severity floor for delivery?** A 3am Level-2 advisory change
-   is probably not worth waking up for. Could be a per-rule `quietHours` field or
-   deferred entirely.
+3. **Quiet hours / severity floor for delivery?** Deferred, not built. Revisit
+   once there is real alert volume to judge against.
+
+5. **Escalation only meaningfully applies to `seismic`, `gdacs`, and sometimes
+   `cyber`.** The other alertable layers emit a constant severity, so they can
+   never escalate (see the annotations at each constant, and the severity
+   contract in `src/lib/normalize.js`). This is a property of the sources, not a
+   defect, but it means the escalate trigger is narrower than it sounds.
+
+6. **A rule can validate and still be inert.** `minSeverity: 4` on a layer whose
+   severity is a constant 3 loads clean and never matches. Not statically
+   detectable without running the adapters, and a declared per-layer severity
+   range would drift. Mitigated by dry run now; rule-health tracking
+   (`last_matched_at`, never-matched surfacing) belongs in Phase 4.
 4. ~~**Does `conflict` ever reconcile?**~~ **Answered: no.** `layerEntities`
    returns `null` for a `load: null` row, so `handleLayer` throws 404 before
    reaching `persistSnapshot`. `conflict` is `persist: true` in the registry but

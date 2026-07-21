@@ -29,6 +29,23 @@ CREATE TABLE IF NOT EXISTS entity_events (
 CREATE INDEX IF NOT EXISTS idx_events_last_seen    ON entity_events(last_seen);
 CREATE INDEX IF NOT EXISTS idx_events_first_seen   ON entity_events(first_seen);
 CREATE INDEX IF NOT EXISTS idx_events_layer_status ON entity_events(layer, status);
+
+-- One row per (rule, entity, reason) that has ever fired. This is what makes an
+-- entity alert exactly once per rule, permanently, across restarts — the whole
+-- reason the alert engine is coupled to the store. Doubles as the audit trail
+-- behind the Alerts panel ("why was I paged at 3am").
+CREATE TABLE IF NOT EXISTS alert_log (
+  rule_id    TEXT    NOT NULL,
+  layer      TEXT    NOT NULL,
+  entity_id  TEXT    NOT NULL,
+  reason     TEXT    NOT NULL,
+  fired_at   TEXT    NOT NULL,
+  severity   INTEGER,
+  name       TEXT,
+  payload    TEXT,
+  PRIMARY KEY (rule_id, layer, entity_id, reason)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_log_fired ON alert_log(fired_at);
 `;
 
 // The server's singleton handle. Stays null when persistence is disabled so the
@@ -61,6 +78,12 @@ export function openDb(dbPath = process.env.OSIRIS_DB_PATH) {
   return db;
 }
 
+// The singleton handle, for callers that need to pass it to a handle-taking
+// function (the alert engine). Null when persistence is disabled.
+export function getDb() {
+  return db;
+}
+
 const toInt = (v) => (Number.isFinite(v) ? Math.round(v) : null);
 const toNum = (v) => (Number.isFinite(v) ? v : null);
 
@@ -68,7 +91,71 @@ const toNum = (v) => (Number.isFinite(v) ? v : null);
 // first_seen=now; existing rows advance last_seen and refresh mutable fields),
 // then close any row for this layer not touched this batch. Runs against an
 // explicit handle so it is directly unit-testable on an in-memory db.
+// Rebuild stored entities from their payload. Used for closed events, which are
+// no longer in the incoming batch but still need a real entity (name, position)
+// rather than a bare id.
+function storedEntities(handle, layer, ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  return handle
+    .prepare(`SELECT entity_id, payload FROM entity_events WHERE layer = ? AND entity_id IN (${placeholders})`)
+    .all(layer, ...ids)
+    .map((row) => {
+      try {
+        return JSON.parse(row.payload);
+      } catch {
+        // A row written before payload existed, or corrupted JSON: fall back to
+        // the id so the caller still learns the event closed.
+        return { id: row.entity_id, layer };
+      }
+    });
+}
+
+// Returns what changed, so the alert engine can act on it without re-deriving
+// state: { changes: [{ reason, entity, previousSeverity? }], seeded }.
+//
+// One element type for every reason, because the consumer loops over changes and
+// records (rule, entity, reason) — which is exactly alert_log's primary key.
+// Classification is computed from the pre-transaction state and returned only
+// after the COMMIT, so a rolled-back write never reports changes that were not
+// stored.
 export function reconcile(handle, layer, entities, now = new Date().toISOString()) {
+  // Prior ACTIVE state for this layer, used to tell new from returning from
+  // escalating. Indexed by idx_events_layer_status.
+  const priorRows = handle
+    .prepare(`SELECT entity_id, severity FROM entity_events WHERE layer = ? AND status = 'active'`)
+    .all(layer);
+  const prior = new Map(priorRows.map((row) => [row.entity_id, row.severity]));
+
+  // "Cold" means this layer has never been reconciled — not merely that nothing
+  // is active. On a first run every entity looks new, so alerting on that batch
+  // would page the operator with the entire feed the moment the store is
+  // enabled. The batch is stored, then reported as a seed with nothing to alert.
+  const cold = !handle.prepare(`SELECT 1 FROM entity_events WHERE layer = ? LIMIT 1`).get(layer);
+
+  const changes = [];
+  const present = new Set();
+  for (const e of entities || []) {
+    if (!e || e.id == null) continue;
+    const id = String(e.id);
+    present.add(id);
+    if (!prior.has(id)) {
+      // New, or returning after having been closed. Both are "it is here now
+      // and it was not before", which is the signal a rule wants; the alert_log
+      // keeps a returning entity from alerting twice for the same rule.
+      changes.push({ reason: "appeared", entity: e });
+      continue;
+    }
+    const previousSeverity = prior.get(id);
+    const severity = toInt(e.severity);
+    if (Number.isFinite(severity) && Number.isFinite(previousSeverity) && severity > previousSeverity) {
+      changes.push({ reason: "escalated", entity: e, previousSeverity });
+    }
+  }
+  const closedIds = priorRows
+    .filter((row) => !present.has(row.entity_id))
+    .map((row) => row.entity_id);
+
   const upsert = handle.prepare(`
     INSERT INTO entity_events
       (layer, entity_id, first_seen, last_seen, status, closed_at, severity, lat, lon, name, source, payload)
@@ -112,28 +199,76 @@ export function reconcile(handle, layer, entities, now = new Date().toISOString(
     handle.exec("ROLLBACK");
     throw error;
   }
+
+  // A cold layer has no prior rows, so nothing can have closed either.
+  if (cold) return { changes: [], seeded: true };
+
+  for (const entity of storedEntities(handle, layer, closedIds)) {
+    changes.push({ reason: "closed", entity });
+  }
+  return { changes, seeded: false };
 }
 
 // Delete closed events whose closed_at is older than the retention window. Active
 // rows are never pruned. Returns the number of rows removed.
 export function pruneOld(handle, retentionDays = 90, nowMs = Date.now()) {
   const cutoff = new Date(nowMs - retentionDays * 86_400_000).toISOString();
-  return handle
+  const removed = handle
     .prepare(`DELETE FROM entity_events WHERE status = 'closed' AND closed_at < ?`)
     .run(cutoff).changes;
+  // Alert history ages out on the same window. Dropping a row re-arms that
+  // (rule, entity, reason), which is intended: after the retention period the
+  // event is no longer part of the recent picture.
+  handle.prepare(`DELETE FROM alert_log WHERE fired_at < ?`).run(cutoff);
+  return removed;
 }
 
 // Server-facing fire-and-forget write. No-op when persistence is disabled or the
 // layer is not in the allowlist. Synchronous (node:sqlite is sync) — callers wrap
 // it in try/catch AFTER sending the response so it can never delay or break one.
+// Returns the reconcile classification so the caller can feed the alert engine,
+// or null when nothing was written (persistence off, layer not persistable, or
+// the source is switched off).
 export function persistSnapshot(layer, entities, meta) {
-  if (!db || !isPersistable(layer)) return;
+  if (!db || !isPersistable(layer)) return null;
   // An optional-keyed source with no key returns an empty snapshot. Reconciling
   // that would close-absentee the layer's entire history and report every record
   // as "Dropped" — the source being switched off is not the same as its events
   // having ended. Skip the write and leave the existing history intact.
-  if (meta?.configured === false) return;
-  reconcile(db, layer, entities);
+  if (meta?.configured === false) return null;
+  return reconcile(db, layer, entities);
+}
+
+// ---- Alert dedupe log ------------------------------------------------------
+
+// Record that a rule fired for an entity. Returns true only if this is the
+// first time for that (rule, entity, reason) — the insert itself is the dedupe,
+// so there is no check-then-write gap. Callers notify only on true.
+export function recordFired(handle, { ruleId, layer, entityId, reason, firedAt = new Date().toISOString(), severity = null, name = null, payload = null }) {
+  const result = handle.prepare(`
+    INSERT OR IGNORE INTO alert_log
+      (rule_id, layer, entity_id, reason, fired_at, severity, name, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(ruleId, layer, String(entityId), reason, firedAt, toInt(severity), name, payload);
+  return result.changes > 0;
+}
+
+// How many times a rule has fired since a timestamp. Backs the per-rule flood
+// guard, so one pathologically broad rule degrades to a summary line instead of
+// emptying itself into the channel.
+export function firedSince(handle, ruleId, sinceIso) {
+  return handle
+    .prepare(`SELECT COUNT(*) AS n FROM alert_log WHERE rule_id = ? AND fired_at >= ?`)
+    .get(ruleId, sinceIso).n;
+}
+
+// Has this rule already fired for this entity and reason? Mostly for queries and
+// tests — the write path should use recordFired's return value instead, so the
+// check and the record cannot disagree.
+export function hasFired(handle, ruleId, layer, entityId, reason) {
+  return Boolean(handle
+    .prepare(`SELECT 1 FROM alert_log WHERE rule_id = ? AND layer = ? AND entity_id = ? AND reason = ?`)
+    .get(ruleId, layer, String(entityId), reason));
 }
 
 // ---- Read API (Phase 2) ----------------------------------------------------

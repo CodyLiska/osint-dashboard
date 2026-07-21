@@ -43,6 +43,8 @@ function fallbackLayer() {
       lat,
       lon,
       url,
+      // Constant 1 (severity contract, src/lib/normalize.js): a broadcaster
+      // directory entry is reference presence, not an event.
       severity: 1,
       source: "Static broadcaster directory",
       summary: "NewsAPI key not configured; showing curated live broadcaster links."
@@ -84,6 +86,8 @@ export async function newsLayer() {
       name: article.title || "News article",
       lat: point.lat,
       lon: point.lon,
+      // Constant 2: a headline carries no impact grade. Filter news rules on
+      // keywords; a minSeverity above 2 can never match.
       severity: 2,
       time: article.publishedAt,
       source: article.source?.name || "NewsAPI",

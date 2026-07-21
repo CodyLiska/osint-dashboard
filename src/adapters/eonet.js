@@ -32,6 +32,10 @@ export async function eonetLayer(layer, categories, bounds = {}) {
       name: event.title,
       lat: geo.coordinates?.[1],
       lon: geo.coordinates?.[0],
+      // Constant per layer: EONET publishes no intensity, so this is a coarse
+      // category weight, not a measurement. A rule with minSeverity above
+      // these values can never match. Deriving real severity from the event
+      // category is a worthwhile follow-up.
       severity: layer === "weather" ? 3 : 4,
       time: geo.date,
       source: event.sources?.[0]?.id || "NASA EONET",

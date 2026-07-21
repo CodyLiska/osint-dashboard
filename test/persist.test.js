@@ -6,10 +6,12 @@ import {
   closeDb,
   getChanges,
   getHistory,
+  hasFired,
   isPersistable,
   openDb,
   persistSnapshot,
   pruneOld,
+  recordFired,
   reconcile
 } from "../src/lib/persist.js";
 
@@ -225,4 +227,165 @@ test("the off-source guard does not block a source that is switched on", () => {
   } finally {
     closeDb();
   }
+});
+
+// ---- classification (Phase 2) ----------------------------------------------
+
+const T0 = "2026-07-20T00:00:00.000Z";
+const T1 = "2026-07-20T01:00:00.000Z";
+const T2 = "2026-07-20T02:00:00.000Z";
+
+// reconcile returns one flat change list; these pull out a single reason.
+const of = (result, reason) => result.changes.filter((c) => c.reason === reason);
+const idsOf = (result, reason) => of(result, reason).map((c) => c.entity.id);
+
+// A layer that has already been seeded, so classification is live rather than
+// suppressed. Returns the db.
+function seeded(db, layer, entities, at = T0) {
+  const first = reconcile(db, layer, entities, at);
+  assert.equal(first.seeded, true, "the first reconcile of a layer is a seed");
+  return db;
+}
+
+test("the first reconcile of a layer seeds without reporting anything to alert on", () => {
+  // Enabling the store must not page the operator with the entire current feed.
+  const db = freshDb();
+  const result = reconcile(db, "seismic", [{ id: "q1" }, { id: "q2" }], T0);
+  assert.equal(result.seeded, true);
+  assert.deepEqual(result.changes, []);
+  // The entities are still stored — seeding suppresses alerting, not persistence.
+  assert.equal(rows(db).length, 2);
+});
+
+test("a genuinely new entity is reported as appeared once the layer is seeded", () => {
+  const db = seeded(freshDb(), "seismic", [{ id: "q1" }]);
+  const result = reconcile(db, "seismic", [{ id: "q1" }, { id: "q2", name: "M5 near B" }], T1);
+  assert.equal(result.seeded, false);
+  assert.deepEqual(idsOf(result, "appeared"), ["q2"]);
+});
+
+test("an entity returning after it closed counts as appeared again", () => {
+  // It is here now and it was not before, which is the signal a rule wants; the
+  // alert_log is what stops it notifying twice.
+  const db = seeded(freshDb(), "seismic", [{ id: "q1" }, { id: "q2" }]);
+  reconcile(db, "seismic", [{ id: "q1" }], T1); // q2 closes
+  const result = reconcile(db, "seismic", [{ id: "q1" }, { id: "q2" }], T2);
+  assert.deepEqual(idsOf(result, "appeared"), ["q2"]);
+});
+
+test("escalation is reported only when severity actually rises", () => {
+  const db = seeded(freshDb(), "seismic", [
+    { id: "up", severity: 2 }, { id: "down", severity: 4 }, { id: "same", severity: 3 }
+  ]);
+  const result = reconcile(db, "seismic", [
+    { id: "up", severity: 5 }, { id: "down", severity: 1 }, { id: "same", severity: 3 }
+  ], T1);
+  assert.deepEqual(idsOf(result, "escalated"), ["up"]);
+});
+
+test("an escalation carries the previous severity so a rule can test the crossing", () => {
+  // A rule fires when previous < minSeverity <= current, so the old value has to
+  // survive the reconcile that overwrote it.
+  const db = seeded(freshDb(), "seismic", [{ id: "q1", severity: 2 }]);
+  const result = reconcile(db, "seismic", [{ id: "q1", severity: 5 }], T1);
+  const escalated = of(result, "escalated");
+  assert.equal(escalated.length, 1);
+  assert.equal(escalated[0].previousSeverity, 2);
+  assert.equal(escalated[0].entity.severity, 5);
+});
+
+test("entities dropping out of the feed are reported as closed", () => {
+  const db = seeded(freshDb(), "seismic", [{ id: "q1" }, { id: "q2" }]);
+  const result = reconcile(db, "seismic", [{ id: "q1" }], T1);
+  assert.deepEqual(idsOf(result, "closed"), ["q2"]);
+});
+
+test("a layer is seeded independently of other layers", () => {
+  // Seeding is per layer, so enabling a new source later does not flood, and an
+  // established layer is not re-suppressed by a newcomer.
+  const db = freshDb();
+  reconcile(db, "seismic", [{ id: "q1" }], T0);
+  const cyberFirst = reconcile(db, "cyber", [{ id: "cve-1" }], T1);
+  assert.equal(cyberFirst.seeded, true);
+  const seismicNext = reconcile(db, "seismic", [{ id: "q1" }, { id: "q2" }], T2);
+  assert.equal(seismicNext.seeded, false);
+  assert.deepEqual(idsOf(seismicNext, "appeared"), ["q2"]);
+});
+
+// ---- alert dedupe log ------------------------------------------------------
+
+const fired = (db, over = {}) => recordFired(db, {
+  ruleId: "taiwan", layer: "seismic", entityId: "q1", reason: "appeared", firedAt: T0, ...over
+});
+
+test("a rule fires once per entity and reason, permanently", () => {
+  // This is what the DB coupling buys: dedupe that survives restarts, so a
+  // long-running event does not re-alert after every deploy.
+  const db = freshDb();
+  assert.equal(fired(db), true, "first time fires");
+  assert.equal(fired(db, { firedAt: T1 }), false, "second time is suppressed");
+  assert.equal(hasFired(db, "taiwan", "seismic", "q1", "appeared"), true);
+});
+
+test("the same entity can fire for a different rule or a different reason", () => {
+  const db = freshDb();
+  assert.equal(fired(db), true);
+  assert.equal(fired(db, { ruleId: "other-rule" }), true, "a different rule is its own decision");
+  assert.equal(fired(db, { reason: "escalated" }), true, "escalation is a distinct event");
+});
+
+test("an unfired rule reports as not fired", () => {
+  assert.equal(hasFired(freshDb(), "nope", "seismic", "q1", "appeared"), false);
+});
+
+test("pruning ages out alert history, re-arming the rule", () => {
+  // After the retention window the event is no longer part of the recent
+  // picture, so it is allowed to alert again if it recurs.
+  const db = freshDb();
+  const now = Date.parse(T2);
+  const old = new Date(now - 120 * 86_400_000).toISOString();
+  assert.equal(fired(db, { firedAt: old }), true);
+  pruneOld(db, 90, now);
+  assert.equal(hasFired(db, "taiwan", "seismic", "q1", "appeared"), false);
+  assert.equal(fired(db, { firedAt: T2 }), true, "re-armed after the retention window");
+});
+
+test("a failed reconcile reports nothing and stores nothing", () => {
+  // Classification is returned only after the COMMIT, so a rolled-back batch
+  // must not tell the alert engine about changes that were never stored.
+  const db = seeded(freshDb(), "seismic", [{ id: "q1", severity: 2 }]);
+  const circular = { id: "bad", severity: 5 };
+  circular.self = circular; // JSON.stringify throws inside the transaction
+
+  assert.throws(() => reconcile(db, "seismic", [{ id: "q2" }, circular], T1));
+
+  // The partial batch was rolled back: q2 was never added, q1 untouched.
+  const stored = rows(db, "SELECT entity_id, status FROM entity_events WHERE layer = 'seismic'");
+  assert.deepEqual(stored.map((r) => r.entity_id), ["q1"]);
+  assert.equal(stored[0].status, "active");
+});
+
+test("a closed change carries the rebuilt entity, not a bare id", () => {
+  // The entity is gone from the incoming batch, so it has to come back out of
+  // the stored payload — otherwise a consumer can only report "something ended".
+  const db = seeded(freshDb(), "seismic", [
+    { id: "q1" },
+    { id: "q2", name: "M5.2 near Hualien", severity: 4, lat: 23.9, lon: 121.5 }
+  ]);
+  const result = reconcile(db, "seismic", [{ id: "q1" }], T1);
+  const [closed] = of(result, "closed");
+  assert.equal(closed.entity.id, "q2");
+  assert.equal(closed.entity.name, "M5.2 near Hualien");
+  assert.equal(closed.entity.severity, 4);
+  assert.equal(closed.entity.lat, 23.9);
+});
+
+test("every change carries a reason, so the alert log can key on it", () => {
+  // reason maps onto alert_log's primary key; a change without one could not be
+  // deduplicated.
+  const db = seeded(freshDb(), "seismic", [{ id: "a", severity: 2 }, { id: "b" }]);
+  const result = reconcile(db, "seismic", [{ id: "a", severity: 5 }, { id: "c" }], T1);
+  const reasons = result.changes.map((c) => c.reason).sort();
+  assert.deepEqual(reasons, ["appeared", "closed", "escalated"]);
+  assert.ok(result.changes.every((c) => c.entity && c.entity.id), "each change carries an entity");
 });

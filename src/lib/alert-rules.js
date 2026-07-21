@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { geoProvenance, knownLayerIds } from "../adapters/layers.js";
 
 // Alert rule loading and matching. Everything except loadRules() is pure, so the
@@ -287,7 +287,31 @@ export function loadRules(path = process.env.OSIRIS_ALERT_RULES_PATH || "./confi
   return { rules, errors, path, present: true };
 }
 
+// Hot reload, checked by mtime rather than fs.watch: the poll path already runs
+// on a cadence, so a stat per fetch is cheaper and far more predictable than a
+// watcher (no duplicate events, nothing to tear down, works over a bind mount
+// where inotify can be unreliable).
+let cachedPath = null;
+let cachedMtime = 0;
+
+export function currentRules(path = process.env.OSIRIS_ALERT_RULES_PATH || "./config/alert-rules.json") {
+  let mtime = 0;
+  try {
+    mtime = statSync(path).mtimeMs;
+  } catch {
+    // Missing file: fall through to loadRules, which treats it as "alerting off".
+  }
+  if (path !== cachedPath || mtime !== cachedMtime) {
+    cachedPath = path;
+    cachedMtime = mtime;
+    return loadRules(path).rules;
+  }
+  return lastGood;
+}
+
 // Test seam: reset the last-good cache between cases.
 export function resetLoadedRules() {
   lastGood = [];
+  cachedPath = null;
+  cachedMtime = 0;
 }

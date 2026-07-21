@@ -38,6 +38,9 @@ export async function iodaLayer() {
       name: `Internet outage: ${alert.entity?.name || cc}`,
       lon: centroid[0],
       lat: centroid[1],
+      // Constant 5 (see the severity contract in src/lib/normalize.js): a
+      // country-level internet blackout has no lesser grade. Escalation can
+      // never fire here, and a minSeverity below 5 does not narrow anything.
       severity: 5,
       time: alert.time ? new Date(alert.time * 1000).toISOString() : null,
       source: "IODA",

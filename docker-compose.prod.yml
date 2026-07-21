@@ -16,8 +16,22 @@ services:
       # Enable optional historical persistence, stored on the named volume below.
       # Comment this out (and the volume) to run stateless as before.
       OSIRIS_DB_PATH: /app/data/osiris.db
+      # Alert rules, supplied by the read-only bind mount below. Absolute so it
+      # does not depend on the working directory. The file is gitignored (rules
+      # encode what you are watching), so `git pull` does NOT deliver it — it
+      # must be placed on the server by hand. A missing file simply means
+      # alerting is off; the startup log prints which path was read and how many
+      # rules loaded, so check there rather than assuming it is working.
+      OSIRIS_ALERT_RULES_PATH: /app/config/alert-rules.json
+      # Uncomment to evaluate rules and log what WOULD fire without sending or
+      # recording anything. Worth doing for a cycle after any rule change.
+      # OSIRIS_ALERT_DRY_RUN: "1"
     volumes:
       - osiris-data:/app/data
+      # Read-only: the app never writes rules. Mounting the directory rather
+      # than the file means a missing alert-rules.json degrades to "alerting
+      # off" instead of Docker creating a directory in its place.
+      - ./config:/app/config:ro
     restart: unless-stopped
 
 volumes:

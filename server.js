@@ -17,7 +17,9 @@ import {
 import { btcLookup, cveSearch, ethLookup, icsAdvisories, sanctionsSearch, vulnCheckKev } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
-import { getChanges, getHistory, openDb, persistSnapshot, startRetention } from "./src/lib/persist.js";
+import { getChanges, getDb, getHistory, openDb, persistSnapshot, startRetention } from "./src/lib/persist.js";
+import { currentRules, loadRules } from "./src/lib/alert-rules.js";
+import { evaluateAlerts } from "./src/lib/alerts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -127,10 +129,23 @@ async function handleLayer(req, res, url, layer) {
   // Fire-and-forget history write, after the response is sent. No-op unless
   // OSIRIS_DB_PATH is set and the layer is persistable; a failure here must never
   // delay or break the layer response, so it is caught and logged.
+  let classification = null;
   try {
-    persistSnapshot(layer, payload.entities, payload.meta);
+    classification = persistSnapshot(layer, payload.entities, payload.meta);
   } catch (error) {
     console.error(`[persist] ${layer}:`, error.message);
+  }
+
+  // Alert evaluation rides the same fire-and-forget slot. It needs the store, so
+  // it is a no-op when persistence is disabled. Awaited inside its own catch so
+  // a Slack outage or a bad rule can never surface to the client.
+  if (classification) {
+    try {
+      const rules = currentRules();
+      if (rules.length) await evaluateAlerts(getDb(), layer, classification, rules);
+    } catch (error) {
+      console.error(`[alerts] ${layer}:`, error.message);
+    }
   }
 }
 
@@ -326,9 +341,32 @@ export function createServer() {
 
 // Listen only when run directly (`node server.js`); stay silent when imported by
 // tests so routing can be exercised on an ephemeral port without side effects.
+// State the alerting posture once at boot, in every case. Rules are otherwise
+// loaded lazily on the first persistable layer fetch, and a missing rules file
+// logs nothing at all — so without this an operator cannot tell "configured and
+// waiting" from "silently disabled", which is the worst failure this feature
+// has. Says why it is off, not just that it is.
+function reportAlertStatus() {
+  if (!process.env.OSIRIS_DB_PATH) {
+    console.log("[alerts] disabled: OSIRIS_DB_PATH is not set (alert dedupe lives in the history store)");
+    return;
+  }
+  const rulesPath = process.env.OSIRIS_ALERT_RULES_PATH || "./config/alert-rules.json";
+  const { rules, errors, present } = loadRules(rulesPath);
+  if (!present) {
+    console.log(`[alerts] idle: no rules file at ${rulesPath} — create one to enable alerting`);
+    return;
+  }
+  const dryRun = process.env.OSIRIS_ALERT_DRY_RUN === "1" ? " (DRY RUN: logging only, nothing sent or recorded)" : "";
+  const rejected = errors.length ? `, ${errors.length} rejected` : "";
+  const sink = process.env.SLACK_WEBHOOK_URL ? "Slack" : "log only (no SLACK_WEBHOOK_URL)";
+  console.log(`[alerts] active: ${rules.length} rule(s) from ${rulesPath}${rejected} → ${sink}${dryRun}`);
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   openDb(); // no-op unless OSIRIS_DB_PATH is set
   startRetention();
+  reportAlertStatus();
   createServer().listen(port, host, () => {
     console.log(`OSINT dashboard running at http://${host}:${port}`);
   });

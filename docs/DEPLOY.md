@@ -67,6 +67,49 @@ git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+## Alert rules (optional)
+
+Geofence + keyword rules that notify on Slack. Off unless you enable it, and it
+**requires historical persistence** — the alert dedupe lives in that store.
+
+The rules file is **gitignored**, because rules encode what you are watching.
+That means `git pull` will not deliver it and it must be placed on the server by
+hand. It is also excluded from the image (`.dockerignore`) so it is never baked
+into a layer; it reaches the container through the read-only bind mount that
+`docker-compose.prod.yml` already declares (`./config:/app/config:ro`).
+
+```bash
+# on the server, in the repo directory
+cp config/alert-rules.example.json config/alert-rules.json
+nano config/alert-rules.json          # see the example for the shape
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Check the startup line before trusting it.** The server states its alerting
+posture at boot in every case:
+
+```bash
+docker compose -f docker-compose.prod.yml logs | grep '\[alerts\]'
+```
+
+| Line | Meaning |
+| ---- | ------- |
+| `disabled: OSIRIS_DB_PATH is not set` | Persistence is off, so alerting cannot run |
+| `idle: no rules file at <path>` | Enabled, but no rules exist yet |
+| `active: N rule(s) … → Slack` | Live |
+| `active: … → log only (no SLACK_WEBHOOK_URL)` | Live, but messages only reach the container log |
+
+**Do a dry run first.** Uncomment `OSIRIS_ALERT_DRY_RUN: "1"` in
+`docker-compose.prod.yml` and watch a cycle. Dry run evaluates rules and logs
+what *would* fire without sending or recording anything, so it is repeatable —
+and it is the only way to discover that a rule is silently inert (a `minSeverity`
+above a layer's constant severity validates fine and then never matches).
+A broad rule will hit the per-rule cap of 20/hour immediately; that is the flood
+guard working, not an error.
+
+Rules are re-read whenever the file's mtime changes, so editing them does not
+need a restart.
+
 ## Historical persistence (optional)
 
 The compose file enables a durable event history via built-in `node:sqlite` (no

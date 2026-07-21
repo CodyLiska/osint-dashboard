@@ -70,6 +70,8 @@ async function channelPosts(channel) {
       name: place.name,
       lat: place.lat,
       lon: place.lon,
+      // Constant 3: a channel post carries no impact axis of its own. A rule
+      // over telegram should filter on keywords or geofence, not severity.
       severity: 3,
       time: timeMatch?.[1] || null,
       source: `Telegram / ${channel}`,

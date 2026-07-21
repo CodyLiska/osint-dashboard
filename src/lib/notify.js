@@ -31,6 +31,13 @@ async function postToSlack(text) {
   }
 }
 
+// Best-effort Slack post for the alert-rules engine. Distinct concern from
+// alertSource below (that one is source-health/operational alerting) but shares
+// the webhook and the never-throw contract. No webhook configured = no-op.
+export function postAlert(text) {
+  return postToSlack(text);
+}
+
 // Alert on an upstream failure. Fires immediately the first time a source fails,
 // then at most once per COOLDOWN_MS while it stays down. Rate-limits (429/403)
 // are tagged distinctly so IP-level throttling is obvious at a glance.

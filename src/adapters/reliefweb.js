@@ -13,8 +13,38 @@ import { centroidForCountry } from "../lib/centroids.js";
 // primary country's centroid — country-level precision, same as the outage layers.
 const BASE_URL = "https://api.reliefweb.int/v2/disasters";
 
-// ReliefWeb marks a disaster alert / current / past.
-const STATUS_SEVERITY = { alert: 5, current: 4, past: 2 };
+// Disaster type → severity, per the contract in src/lib/normalize.js: severity
+// is impact, not lifecycle. An earlier version mapped ReliefWeb's status
+// (alert/current/past) onto severity, which was wrong twice over — a disaster's
+// normal progression is alert→current, so every disaster appeared to get *less*
+// severe as it developed, and escalation alerting could never fire. Status is
+// still carried on the entity, where it belongs.
+const TYPE_SEVERITY = {
+  "Complex Emergency": 5,
+  Epidemic: 5,
+  Earthquake: 5,
+  "Tsunami": 5,
+  "Tropical Cyclone": 4,
+  Flood: 4,
+  "Flash Flood": 4,
+  Drought: 4,
+  "Volcano": 4,
+  "Land Slide": 3,
+  "Mud Slide": 3,
+  "Storm Surge": 3,
+  "Severe Local Storm": 3,
+  "Wild Fire": 3,
+  "Cold Wave": 3,
+  "Heat Wave": 3,
+  "Fire": 3,
+  "Technological Disaster": 3,
+  "Insect Infestation": 2,
+  "Snow Avalanche": 2,
+  Other: 2
+};
+
+// ReliefWeb's status (alert / current / past) stays on the entity as `status`
+// for display and filtering, deliberately NOT folded into severity.
 
 export function parseDisasters(payload) {
   return (payload?.data || []).map((row) => {
@@ -66,7 +96,7 @@ export async function reliefWebLayer() {
         name: row.name,
         lon: centroid?.[0],
         lat: centroid?.[1],
-        severity: STATUS_SEVERITY[row.status] || 3,
+        severity: TYPE_SEVERITY[row.type] || 3,
         time: row.date || null,
         source: "ReliefWeb (UN OCHA)",
         url: row.url,

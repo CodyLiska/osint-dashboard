@@ -2,6 +2,11 @@
 .gitignore
 .env*
 !.env.example
+# Live alert rules encode what you are watching, so they must not be baked into
+# an image layer by `COPY . .` — same reasoning as .env. They reach the
+# container through the read-only bind mount in docker-compose.prod.yml. The
+# committed example stays, since it is documentation.
+config/alert-rules.json
 .ai-smell
 .claude
 .DS_Store
