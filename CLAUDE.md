@@ -23,9 +23,9 @@ Keep it LAN-only: the `/api/intel/*` and `/api/crypto/*` routes proxy external s
 
 ## Status / Next
 
-**PRODUCTION** — deployed on the homelab `ubuntu-g2` (192.168.12.230), LAN-only at http://192.168.12.230:8092 (`docker-compose.prod.yml`, non-root `node`), located at `06_Production_Apps/Homelab_Sever/osint-dashboard`. **210 tests** (`npm test`, zero deps).
+**PRODUCTION** — deployed on the homelab `ubuntu-g2` (192.168.12.230), LAN-only at http://192.168.12.230:8092 (`docker-compose.prod.yml`, non-root `node`), located at `06_Production_Apps/Homelab_Sever/osint-dashboard`. **286 tests** (`npm test`, zero deps).
 
-Uncommitted (2026-07-20) — critical-infra + humanitarian sources, IP-intel cards:
+Recent (2026-07-20, committed `00821e9`→`6620471`) — critical-infra + humanitarian sources, IP-intel cards:
 - **4 new layers (batch 5).** `power-plants` (static, WRI v1.3.0, 3,245 plants ≥500MW plus all 195 nuclear, 814KB, `scripts/build-power-plants.mjs`); `infrastructure` (live, OSM/Overpass substations + comms towers, viewport-scoped); `advisories` (live keyless State Dept RSS, 208 countries); `reliefweb` (optional-keyed `RELIEFWEB_APPNAME`, persist:true).
 - **Catalog rows were stale again** — probe first: ReliefWeb v1 is decommissioned (410) + v2 is registration-gated; IAEA PRIS has no API (skipped, WRI nuclear covers it); the WRI "dataset" is a 12MB CSV in a ZIP.
 - **Fixed: Spain's centroid was the Canary Islands** (~1,800km off) — the upstream lists ES/TF/BQ twice and last-wins picked the island. Also added TW/XK/HK/MO, which the upstream omits entirely, so a Taiwan or Hong Kong internet outage was being silently dropped by IODA/Cloudflare. `country-centroids.json` is now v2 with a name→code map (287 keys incl. aliases); regenerate via `scripts/build-country-centroids.mjs` (it has a regression guard).
@@ -40,12 +40,13 @@ Recent (2026-07-19, all committed):
 - **21 new data sources** across 4 batches — see the status block + `DONE` markers in `docs/FUTURE-DATA-SOURCES.md`. Keyed sources are **optional graceful-off**; standing rule: add keyed sources with a needs-key caveat, never skip for being keyed.
 - Reusable infra: `/api/intel/ip` + `/api/intel/domain` fan-outs (10 / 4 sources), `deck.PolygonLayer` path (NWS), zero-dep two-body orbit propagator (`src/lib/orbit.js`, CelesTrak), shared country-centroids (`src/lib/centroids.js` + `public/data/country-centroids.json`).
 
-**Alert-rules engine COMPLETE (Phases 1-4, 2026-07-20), uncommitted.** Geofence + keyword rules in a hot-reloaded, gitignored `config/alert-rules.json`; coupled to the reconcile store so an entity alerts once ever; fires on appear + upward severity threshold crossing; batched one Slack message per rule; per-rule hourly cap; dry run; 7th recon tab "Alerts" surfacing every rule's health (active/quiet/never-matched/disabled). Off by default: needs `OSIRIS_DB_PATH` **and** a rules file. See `docs/PLAN-alert-rules.md` and the Alert rules section of `docs/DEPLOY.md`.
+**Alert-rules engine COMPLETE (Phases 1-4, 2026-07-20), committed through `6620471`.** Geofence + keyword rules in a hot-reloaded, gitignored `config/alert-rules.json`; coupled to the reconcile store so an entity alerts once ever; fires on appear + upward severity threshold crossing; batched one Slack message per rule; per-rule hourly cap; dry run; 7th recon tab "Alerts" surfacing every rule's health (active/quiet/never-matched/disabled). Off by default: needs `OSIRIS_DB_PATH` **and** a rules file. See `docs/PLAN-alert-rules.md` and the Alert rules section of `docs/DEPLOY.md`.
 - Caveats worth knowing: escalation only meaningfully applies to `seismic`/`gdacs`/sometimes `cyber` (the other alertable layers emit a constant severity); a rule can validate and still be inert, which is why dry run and the never-matched flag exist; kinematic layers (`aviation`/`military-air`/`maritime`) cannot alert at all because they are `persist:false`.
 
 Next:
 - Deferred sources (endpoints relocated): GPSJam, ransomware.live. IAEA PRIS skipped (no API).
 - README phase 7: authenticated higher-quota adapters (needs real keys).
+- **UI layout (`docs/PLAN-layout.md`, proposed):** the map is only 43% of a 1280px screen because two panes hold 730px of permanent chrome, and the recon pane is 61% empty in its default state. Phase 1 = recon collapsed by default (one-line store default; map 43%→73%). Phase 2 = recon becomes an overlay over the map rather than a grid column — note the trap: 7 `flyTo` call sites must route through one padding-aware helper or entities land underneath the overlay. Tab bar is also at its width ceiling (7 fit, an 8th clips).
 - Minor: rapid map panning skips Overpass refreshes (`state.refreshing` gate drops the moveend that lands mid-flight), so the infrastructure layer can lag the final viewport by one pan. Harmless today; a trailing re-check after the in-flight fetch would close it.
 
 Implemented 2026-07-17 (committed) — architecture reference:

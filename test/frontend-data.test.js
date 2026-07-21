@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { layerDefinitions, loadStaticLayers } from "../public/data.js";
+import { LAYER_GROUPS, layerDefinitions, loadStaticLayers } from "../public/data.js";
 
 // public/data.js is import-safe in Node: it only touches `fetch` inside
 // loadStaticLayers(), so the static layer definitions and loader are testable.
@@ -32,5 +32,23 @@ test("loadStaticLayers keys datasets by name and tolerates a missing one", async
     assert.ok("military" in layers);
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("every layer declares a group that exists", () => {
+  // The sidebar renders one collapsible section per group. A layer with a
+  // missing or unknown group would simply not render — invisible rather than
+  // broken, which is the failure mode this codebase keeps hitting.
+  const known = new Set(LAYER_GROUPS.map((g) => g.id));
+  for (const layer of layerDefinitions) {
+    assert.ok(known.has(layer.group), `${layer.id} has no valid group (got ${layer.group})`);
+  }
+});
+
+test("no group is defined without layers in it", () => {
+  // An empty group would render as a header that opens onto nothing.
+  for (const group of LAYER_GROUPS) {
+    const members = layerDefinitions.filter((l) => l.group === group.id);
+    assert.ok(members.length, `group ${group.id} has no layers`);
   }
 });

@@ -1,4 +1,4 @@
-import { layerDefinitions, loadStaticLayers } from "./data.js";
+import { LAYER_GROUPS, layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
@@ -406,9 +406,48 @@ function saveViewport() {
   persist();
 }
 
+// Collapsed group ids, persisted alongside the other UI state. A group the user
+// closed stays closed across reloads.
+function isCollapsed(groupId) {
+  return (store.collapsedGroups || []).includes(groupId);
+}
+
+function toggleGroup(groupId) {
+  const collapsed = new Set(store.collapsedGroups || []);
+  collapsed.has(groupId) ? collapsed.delete(groupId) : collapsed.add(groupId);
+  store.collapsedGroups = [...collapsed];
+  persist();
+  renderLayerControls();
+}
+
 function renderLayerControls() {
   els.layerList.innerHTML = "";
-  for (const layer of layerDefinitions) {
+  for (const group of LAYER_GROUPS) {
+    const members = layerDefinitions.filter((layer) => layer.group === group.id);
+    if (!members.length) continue;
+    const enabledCount = members.filter((layer) => state.enabled.has(layer.id)).length;
+    const collapsed = isCollapsed(group.id);
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = `layer-group${collapsed ? " collapsed" : ""}`;
+    header.dataset.group = group.id;
+    header.setAttribute("aria-expanded", String(!collapsed));
+    // The enabled/total count is what makes a collapsed group readable — you can
+    // see a group is doing something without opening it.
+    header.innerHTML = `
+      <span class="group-caret" aria-hidden="true">${collapsed ? "▸" : "▾"}</span>
+      <span class="group-label">${group.label}</span>
+      <span class="group-count${enabledCount ? " on" : ""}">${enabledCount}/${members.length}</span>
+    `;
+    els.layerList.append(header);
+    if (collapsed) continue;
+    renderLayerRows(members);
+  }
+}
+
+function renderLayerRows(layers) {
+  for (const layer of layers) {
     // Static datasets are preloaded, so show their available size even when the
     // layer is off; live layers only have a count once fetched.
     const count = layer.staticKey && !state.data.has(layer.id)
@@ -443,6 +482,12 @@ function renderLayerControls() {
 // listener survives every renderLayerControls() re-render — re-attaching it per
 // render (as before) leaked listeners and fired duplicate fetches on each toggle.
 function wireLayerControls() {
+  // Delegated, wired once. Per-render listeners on these rows previously
+  // accumulated and fired duplicate upstream fetches on every toggle.
+  els.layerList.addEventListener("click", (event) => {
+    const header = event.target.closest(".layer-group");
+    if (header) toggleGroup(header.dataset.group);
+  });
   els.layerList.addEventListener("change", async (event) => {
     const id = event.target.dataset.layer;
     if (!id) return;

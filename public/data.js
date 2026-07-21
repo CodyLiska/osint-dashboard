@@ -18,32 +18,45 @@ export async function loadStaticLayers() {
   return Object.fromEntries(entries);
 }
 
+// Layer groups, in display order. The sidebar renders one collapsible section
+// per group; a layer must declare one (asserted by a test) so the list stays
+// navigable as the source catalogue grows.
+export const LAYER_GROUPS = [
+  { id: "air", label: "Air & Space" },
+  { id: "maritime", label: "Maritime" },
+  { id: "hazards", label: "Hazards" },
+  { id: "conflict", label: "Conflict & Political" },
+  { id: "feeds", label: "Open-Source Feeds" },
+  { id: "cyber", label: "Cyber & Internet" },
+  { id: "infra", label: "Infrastructure" }
+];
+
 export const layerDefinitions = [
-  { id: "aviation", label: "Aviation", color: [92, 200, 255], live: true },
-  { id: "ports", label: "NGA World Port Index", color: [20, 184, 166], live: true },
-  { id: "chokepoints", label: "10 Chokepoints", color: [251, 146, 60], staticKey: "chokepoints" },
-  { id: "cctv", label: "CCTV Cameras", color: [168, 85, 247], staticKey: "cctv" },
-  { id: "seismic", label: "USGS M2.5+ Earthquakes", color: [248, 113, 113], live: true },
-  { id: "fires", label: "NASA FIRMS Fires", color: [239, 68, 68], live: true },
-  { id: "weather", label: "Severe Weather", color: [59, 130, 246], live: true },
-  { id: "news", label: "Live News", color: [250, 204, 21], live: true },
-  { id: "gdelt", label: "GDELT Events", color: [232, 121, 249], live: true },
-  { id: "gdacs", label: "GDACS Disasters", color: [249, 115, 22], live: true },
-  { id: "ucdp", label: "Conflict (UCDP)", color: [190, 18, 60], live: true },
-  { id: "nws", label: "NWS Alerts (US)", color: [124, 58, 237], live: true },
-  { id: "ioda", label: "Internet Outages", color: [219, 39, 119], live: true },
-  { id: "advisories", label: "Travel Advisories", color: [217, 119, 6], live: true },
-  { id: "reliefweb", label: "Humanitarian (ReliefWeb)", color: [56, 189, 248], live: true },
-  { id: "infrastructure", label: "Infrastructure (OSM)", color: [163, 230, 53], live: true },
-  { id: "power-plants", label: "Power Plants", color: [250, 204, 21], staticKey: "power-plants" },
-  { id: "cloudflare", label: "Cloudflare Radar", color: [251, 146, 60], live: true },
-  { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true },
-  { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true },
-  { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict" },
-  { id: "telegram", label: "Telegram OSINT", color: [34, 211, 238], live: true },
-  { id: "crypto", label: "Crypto Intel", color: [234, 179, 8], live: true },
-  { id: "sanctions", label: "Sanctions Intel", color: [220, 38, 38], live: true },
-  { id: "maritime", label: "Maritime Intel", color: [45, 212, 191], live: true },
-  { id: "military", label: "Military Bases", color: [148, 163, 184], staticKey: "military" },
-  { id: "military-air", label: "Military Aircraft", color: [245, 158, 11], live: true }
+  { id: "aviation", label: "Aviation", color: [92, 200, 255], live: true, group: "air" },
+  { id: "ports", label: "NGA World Port Index", color: [20, 184, 166], live: true, group: "maritime" },
+  { id: "chokepoints", label: "10 Chokepoints", color: [251, 146, 60], staticKey: "chokepoints", group: "maritime" },
+  { id: "cctv", label: "CCTV Cameras", color: [168, 85, 247], staticKey: "cctv", group: "infra" },
+  { id: "seismic", label: "USGS M2.5+ Earthquakes", color: [248, 113, 113], live: true, group: "hazards" },
+  { id: "fires", label: "NASA FIRMS Fires", color: [239, 68, 68], live: true, group: "hazards" },
+  { id: "weather", label: "Severe Weather", color: [59, 130, 246], live: true, group: "hazards" },
+  { id: "news", label: "Live News", color: [250, 204, 21], live: true, group: "feeds" },
+  { id: "gdelt", label: "GDELT Events", color: [232, 121, 249], live: true, group: "feeds" },
+  { id: "gdacs", label: "GDACS Disasters", color: [249, 115, 22], live: true, group: "hazards" },
+  { id: "ucdp", label: "Conflict (UCDP)", color: [190, 18, 60], live: true, group: "conflict" },
+  { id: "nws", label: "NWS Alerts (US)", color: [124, 58, 237], live: true, group: "hazards" },
+  { id: "ioda", label: "Internet Outages", color: [219, 39, 119], live: true, group: "cyber" },
+  { id: "advisories", label: "Travel Advisories", color: [217, 119, 6], live: true, group: "conflict" },
+  { id: "reliefweb", label: "Humanitarian (ReliefWeb)", color: [56, 189, 248], live: true, group: "conflict" },
+  { id: "infrastructure", label: "Infrastructure (OSM)", color: [163, 230, 53], live: true, group: "infra" },
+  { id: "power-plants", label: "Power Plants", color: [250, 204, 21], staticKey: "power-plants", group: "infra" },
+  { id: "cloudflare", label: "Cloudflare Radar", color: [251, 146, 60], live: true, group: "cyber" },
+  { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true, group: "air" },
+  { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true, group: "cyber" },
+  { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict", group: "conflict" },
+  { id: "telegram", label: "Telegram OSINT", color: [34, 211, 238], live: true, group: "feeds" },
+  { id: "crypto", label: "Crypto Intel", color: [234, 179, 8], live: true, group: "cyber" },
+  { id: "sanctions", label: "Sanctions Intel", color: [220, 38, 38], live: true, group: "cyber" },
+  { id: "maritime", label: "Maritime Intel", color: [45, 212, 191], live: true, group: "maritime" },
+  { id: "military", label: "Military Bases", color: [148, 163, 184], staticKey: "military", group: "infra" },
+  { id: "military-air", label: "Military Aircraft", color: [245, 158, 11], live: true, group: "air" }
 ];

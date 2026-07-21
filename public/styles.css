@@ -34,6 +34,11 @@ select {
 .app-shell {
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr minmax(320px, 390px);
+  /* An implicit `auto` row grows to fit its content even when the container is
+     height-constrained, so the side panes stretched past the viewport and the
+     inner `overflow: auto` never had anything to scroll. minmax(0, 1fr) clamps
+     the row to the container instead. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -67,6 +72,10 @@ select {
   z-index: 3;
   display: flex;
   min-width: 0;
+  /* Both are needed for the inner scroll areas to work: without min-height a
+     flex/grid item refuses to shrink below its content. */
+  min-height: 0;
+  overflow: hidden;
   flex-direction: column;
   gap: 14px;
   padding: 18px;
@@ -1015,4 +1024,51 @@ pre {
 
 .rule-row.disabled {
   opacity: 0.55;
+}
+
+/* Collapsible layer groups. The enabled/total count is what makes a collapsed
+   group readable — you can tell a group is active without opening it. */
+.layer-group {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: #bdd5ce;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.layer-group:first-child {
+  margin-top: 0;
+}
+
+.layer-group:hover {
+  color: var(--text);
+}
+
+.group-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.group-count {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.group-count.on {
+  color: var(--accent);
 }
