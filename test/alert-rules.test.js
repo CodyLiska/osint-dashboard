@@ -1,9 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  matchBatch, matchGeofence, matchKeyword, matchRule, parseRules
+  loadRules, matchBatch, matchGeofence, matchKeyword, matchRule, parseRules, resetLoadedRules
 } from "../src/lib/alert-rules.js";
 import { geoProvenance, knownLayerIds } from "../src/adapters/layers.js";
+
+// Only the loadRules tests touch disk; everything else runs against parseRules.
+const tmp = mkdtempSync(join(tmpdir(), "osiris-alert-rules-"));
+process.on("exit", () => rmSync(tmp, { recursive: true, force: true }));
+const write = (name, contents) => {
+  const path = join(tmp, name);
+  writeFileSync(path, contents);
+  return path;
+};
 
 // Every validation case below runs against parseRules(object) — no filesystem.
 const ok = (raw) => {
@@ -243,4 +256,101 @@ test("an empty batch is handled without throwing", () => {
   const { rules } = parseRules([{ id: "any", minSeverity: 1 }]);
   assert.equal(matchBatch(rules, []).size, 0);
   assert.equal(matchBatch(rules, undefined).size, 0);
+});
+
+// ---- loading (the one impure seam, so it needs real files) -----------------
+
+test("a missing rules file means alerting is off, not broken", () => {
+  // No rules file is a valid configuration. It must not throw or look like an
+  // error, or a fresh install would appear misconfigured.
+  resetLoadedRules();
+  const result = loadRules(join(tmp, "does-not-exist.json"));
+  assert.equal(result.present, false);
+  assert.deepEqual(result.rules, []);
+  assert.deepEqual(result.errors, []);
+});
+
+test("a valid file loads its rules", () => {
+  resetLoadedRules();
+  const path = write("good.json", JSON.stringify([
+    { id: "a", minSeverity: 4 },
+    { id: "b", keywords: ["reactor"] }
+  ]));
+  const result = loadRules(path);
+  assert.equal(result.present, true);
+  assert.deepEqual(result.rules.map((r) => r.id), ["a", "b"]);
+});
+
+test("malformed JSON keeps the last good rules instead of dropping to none", () => {
+  // A bad edit must degrade to the previously working configuration, not
+  // silently disable every alert the operator depends on.
+  resetLoadedRules();
+  loadRules(write("first.json", JSON.stringify([{ id: "keeper", minSeverity: 3 }])));
+  const result = loadRules(write("broken.json", "[{ id: "));
+  assert.deepEqual(result.rules.map((r) => r.id), ["keeper"]);
+  assert.ok(result.errors.length, "the parse failure is still reported");
+});
+
+test("a file with one bad rule still loads the good ones", () => {
+  resetLoadedRules();
+  const path = write("mixed.json", JSON.stringify([
+    { id: "fine", minSeverity: 2 },
+    { id: "broken", layers: ["no-such-layer"] }
+  ]));
+  const result = loadRules(path);
+  assert.deepEqual(result.rules.map((r) => r.id), ["fine"]);
+  assert.equal(result.errors.length, 1);
+});
+
+test("the shipped example file is valid", () => {
+  // The example is the only documentation of the rule shape, so it breaking
+  // silently would mislead every operator who copies it.
+  resetLoadedRules();
+  // fileURLToPath, not URL.pathname — the latter yields "/C:/..." on Windows.
+  const result = loadRules(fileURLToPath(new URL("../config/alert-rules.example.json", import.meta.url)));
+  assert.equal(result.present, true);
+  assert.deepEqual(result.errors, [], "the example must not contain a rejected rule");
+  assert.ok(result.rules.length >= 3);
+});
+
+test("a malformed geofence is rejected with a message naming the problem", () => {
+  // These are the fail-loud guarantees: rejecting rather than warning is only
+  // useful if each malformed shape actually produces its own error.
+  const cases = [
+    [{ type: "bbox", west: 1, south: 2, east: 3 }, /north must be a number/],
+    [{ type: "bbox", west: "x", south: 2, east: 3, north: 4 }, /west must be a number/],
+    [{ type: "bbox", west: 1, south: 50, east: 3, north: 40 }, /south is north of/],
+    [{ type: "circle", lon: 5, radiusKm: 10 }, /lat and geofence.lon must be numbers/],
+    [{ type: "circle", lat: 1, lon: 5, radiusKm: 0 }, /radiusKm must be a positive number/],
+    [{ type: "circle", lat: 1, lon: 5 }, /radiusKm must be a positive number/],
+    [{ type: "polygon", points: [] }, /must be "bbox" or "circle"/],
+    ["not-an-object", /geofence must be an object/]
+  ];
+  for (const [geofence, expected] of cases) {
+    const { rules, errors } = parseRules([{ id: "g", layers: ["seismic"], geofence }]);
+    assert.equal(rules.length, 0, `expected rejection for ${JSON.stringify(geofence)}`);
+    assert.match(errors.join(" "), expected);
+  }
+});
+
+test("an unreadable rules path is reported without dropping the last good rules", () => {
+  // A permissions or path-type problem is not the same as "no rules file", and
+  // must not silently disable alerting.
+  resetLoadedRules();
+  loadRules(write("prior.json", JSON.stringify([{ id: "kept", minSeverity: 3 }])));
+  const result = loadRules(tmp); // a directory, not a file
+  assert.equal(result.present, true);
+  assert.deepEqual(result.rules.map((r) => r.id), ["kept"]);
+  assert.ok(result.errors.length);
+});
+
+test("an empty or malformed condition list is rejected rather than ignored", () => {
+  // `"keywords": []` is the shape a half-finished edit leaves behind. Ignoring
+  // it would silently drop the condition and widen the rule to everything else.
+  assert.match(rejected({ id: "a", layers: [] }), /layers must be a non-empty array/);
+  assert.match(rejected({ id: "b", layers: "seismic" }), /layers must be a non-empty array/);
+  assert.match(rejected({ id: "c", keywords: [] }), /keywords must be a non-empty array/);
+  assert.match(rejected({ id: "d", keywords: ["ok", "  "] }), /keywords must be a non-empty array/);
+  assert.match(rejected({ id: "e", countries: [] }), /countries must be a non-empty array/);
+  assert.match(rejected({ id: "f", countries: [42] }), /countries must be a non-empty array/);
 });
