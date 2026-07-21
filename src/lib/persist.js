@@ -327,6 +327,50 @@ export function getHistory(layer, { since, until } = {}) {
 
 // Close the singleton handle and disable persistence (used at shutdown and to
 // reset state between tests).
+function rowToAlert(row) {
+  let entity = null;
+  try {
+    entity = row.payload ? JSON.parse(row.payload) : null;
+  } catch {
+    entity = null;
+  }
+  return {
+    ruleId: row.rule_id,
+    layer: row.layer,
+    id: row.entity_id,
+    reason: row.reason,
+    firedAt: row.fired_at,
+    severity: row.severity,
+    name: row.name,
+    entity
+  };
+}
+
+// Alerts that fired since a timestamp, newest first. Same graceful-off shape as
+// getChanges, so the panel degrades identically when persistence is disabled.
+export function getAlerts(since, limit = 200) {
+  if (!db) return { enabled: false };
+  const from = since || EPOCH;
+  const alerts = db
+    .prepare(`SELECT * FROM alert_log WHERE fired_at > ? ORDER BY fired_at DESC LIMIT ?`)
+    .all(from, limit)
+    .map(rowToAlert);
+  return { enabled: true, since: from, alerts };
+}
+
+// Fire count and last-fired time per rule. Joined against the configured rules
+// by the caller so a rule that has NEVER fired still appears — that is the whole
+// point: a rule can validate and then be silently inert (a threshold above a
+// layer's constant severity matches nothing, forever), and silence is otherwise
+// indistinguishable from "nothing has happened yet".
+export function ruleStats() {
+  if (!db) return new Map();
+  const rows = db
+    .prepare(`SELECT rule_id, COUNT(*) AS fires, MAX(fired_at) AS last_fired FROM alert_log GROUP BY rule_id`)
+    .all();
+  return new Map(rows.map((row) => [row.rule_id, { fires: row.fires, lastFiredAt: row.last_fired }]));
+}
+
 export function closeDb() {
   if (db) {
     db.close();

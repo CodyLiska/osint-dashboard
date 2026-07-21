@@ -40,8 +40,10 @@ Recent (2026-07-19, all committed):
 - **21 new data sources** across 4 batches — see the status block + `DONE` markers in `docs/FUTURE-DATA-SOURCES.md`. Keyed sources are **optional graceful-off**; standing rule: add keyed sources with a needs-key caveat, never skip for being keyed.
 - Reusable infra: `/api/intel/ip` + `/api/intel/domain` fan-outs (10 / 4 sources), `deck.PolygonLayer` path (NWS), zero-dep two-body orbit propagator (`src/lib/orbit.js`, CelesTrak), shared country-centroids (`src/lib/centroids.js` + `public/data/country-centroids.json`).
 
+**Alert-rules engine COMPLETE (Phases 1-4, 2026-07-20), uncommitted.** Geofence + keyword rules in a hot-reloaded, gitignored `config/alert-rules.json`; coupled to the reconcile store so an entity alerts once ever; fires on appear + upward severity threshold crossing; batched one Slack message per rule; per-rule hourly cap; dry run; 7th recon tab "Alerts" surfacing every rule's health (active/quiet/never-matched/disabled). Off by default: needs `OSIRIS_DB_PATH` **and** a rules file. See `docs/PLAN-alert-rules.md` and the Alert rules section of `docs/DEPLOY.md`.
+- Caveats worth knowing: escalation only meaningfully applies to `seismic`/`gdacs`/sometimes `cyber` (the other alertable layers emit a constant severity); a rule can validate and still be inert, which is why dry run and the never-matched flag exist; kinematic layers (`aviation`/`military-air`/`maritime`) cannot alert at all because they are `persist:false`.
+
 Next:
-- The geofence + keyword **alert-rules engine** (highest leverage remaining, builds on persistence + Slack notify).
 - Deferred sources (endpoints relocated): GPSJam, ransomware.live. IAEA PRIS skipped (no API).
 - README phase 7: authenticated higher-quota adapters (needs real keys).
 - Minor: rapid map panning skips Overpass refreshes (`state.refreshing` gate drops the moveend that lands mid-flight), so the infrastructure layer can lag the final viewport by one pan. Harmless today; a trailing re-check after the in-flight fetch would close it.

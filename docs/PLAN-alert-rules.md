@@ -300,10 +300,23 @@ summary both fired, and `alert_log` stayed empty while entities still persisted.
 > could never have alerted again once a webhook was added. The log is now
 > treated as a delivery channel when no webhook is configured.
 
-**Phase 4 — Visibility.** A 7th recon tab, "Alerts", reading `alert_log` via a
-new `GET /api/alerts?since=`, mirroring the "What Changed" tab. Graceful-off
-shape `{ enabled: false }` when persistence is disabled, matching `/api/changes`.
-*Verify:* Playwright, as with the Changes tab.
+**Phase 4 — Visibility. DONE 2026-07-20.** 7th recon tab "Alerts", backed by
+`GET /api/alerts?since=` (`getAlerts` + `ruleStats` in persist.js), graceful-off
+`{ enabled:false }` like `/api/changes`. The panel shows **every configured
+rule** with its health, not just the ones that fired: `ruleHealth()` in
+`public/logic.js` classifies each as active / quiet / never-matched / disabled,
+so an inert rule is visible rather than merely silent. Recent alerts are
+clickable and fly the map to the entity, rebuilt from the stored payload.
+*Verified* via Playwright against live USGS data: 7 tabs on one row, all four
+health states rendered, and a click flew the map from Berlin to Puerto Madero
+and opened the detail card.
+
+> **Process note from Phase 4:** the first UI seeding run was done WITHOUT
+> `OSIRIS_ALERT_DRY_RUN=1` on a machine whose `.env` holds a live
+> `SLACK_WEBHOOK_URL`, and it posted a real message. Anything that exercises the
+> alert path on a configured machine must set dry run first. Note also that
+> passing `SLACK_WEBHOOK_URL=` on the command line does NOT clear it: the
+> server's `loadEnvFile` treats an empty value as unset and `.env` wins.
 
 ## Testing (zero-dep, `node:test`)
 

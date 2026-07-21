@@ -424,3 +424,25 @@ export function intelCards(payload) {
 
   return `${summary}<div class="intel-cards">${cards.map((c) => c.html).join("")}</div>`;
 }
+
+// ---- Alert rule health -----------------------------------------------------
+// A rule can validate and load cleanly and still never match anything — a
+// minSeverity above a layer's constant severity is the common case. Silence from
+// an alert rule is otherwise indistinguishable from "nothing has happened yet",
+// so the panel states which of the two it is.
+const QUIET_AFTER_MS = 7 * 86_400_000;
+
+export function ruleHealth(rule, nowMs = Date.now()) {
+  if (rule.enabled === false) {
+    return { state: "disabled", label: "disabled" };
+  }
+  if (!rule.fires) {
+    return { state: "never", label: "never matched" };
+  }
+  const last = Date.parse(rule.lastFiredAt);
+  const fires = `${rule.fires} fire${rule.fires === 1 ? "" : "s"}`;
+  if (Number.isFinite(last) && nowMs - last > QUIET_AFTER_MS) {
+    return { state: "quiet", label: `${fires}, none recently` };
+  }
+  return { state: "active", label: fires };
+}

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   escapeHtml, clusterPoints, shouldCluster, filterBySeverity, advancePosition,
   byPriority, buildFeed, detailRows, snapshotEntity, kvRow, extLink,
-  sanctionDetail, intelLinks, cveDetail, relativeTime
+  sanctionDetail, intelLinks, cveDetail, relativeTime, ruleHealth
 } from "../public/logic.js";
 
 test("escapeHtml neutralizes every HTML metacharacter", () => {
@@ -187,4 +187,36 @@ test("cveDetail renders CVSS, description, and the NVD link", () => {
   assert.match(html, /2026-03-14/);
   assert.match(html, /nvd\.nist\.gov\/vuln\/detail\/CVE-2026-0001/);
   assert.match(html, /vendor\.test\/advisory/);
+});
+
+// ---- alert rule health -----------------------------------------------------
+
+test("a rule that has never matched is called out, not shown as merely quiet", () => {
+  // A rule can validate and load and still never match anything. Silence must
+  // not read the same as "working, nothing has happened".
+  const health = ruleHealth({ enabled: true, fires: 0 });
+  assert.equal(health.state, "never");
+  assert.match(health.label, /never matched/);
+});
+
+test("a disabled rule is distinguished from an inert one", () => {
+  // Off on purpose is not the same problem as on but broken.
+  assert.equal(ruleHealth({ enabled: false, fires: 0 }).state, "disabled");
+  assert.equal(ruleHealth({ enabled: false, fires: 9 }).state, "disabled");
+});
+
+test("a rule that has fired recently reads as active", () => {
+  const now = Date.parse("2026-07-20T12:00:00.000Z");
+  const health = ruleHealth({ enabled: true, fires: 3, lastFiredAt: "2026-07-20T11:00:00.000Z" }, now);
+  assert.equal(health.state, "active");
+  assert.equal(health.label, "3 fires");
+});
+
+test("a rule that fired long ago reads as quiet, not as never", () => {
+  // It works; it just has nothing to say lately. That is a different message
+  // from "this rule has never once matched".
+  const now = Date.parse("2026-07-20T12:00:00.000Z");
+  const health = ruleHealth({ enabled: true, fires: 1, lastFiredAt: "2026-06-01T00:00:00.000Z" }, now);
+  assert.equal(health.state, "quiet");
+  assert.match(health.label, /1 fire, none recently/);
 });

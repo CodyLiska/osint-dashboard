@@ -1,9 +1,11 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import http from "node:http";
 import { installFetch } from "./helpers/mock-fetch.js";
 import { createServer } from "../server.js";
-import { closeDb, openDb, reconcile } from "../src/lib/persist.js";
+import { closeDb, openDb, reconcile, recordFired
+} from "../src/lib/persist.js";
 
 // Upstreams the routing tests may reach are mocked so the recon/layer routes run
 // end-to-end without the network. One SDN fixture serves both crypto and entity
@@ -223,5 +225,52 @@ test("GET /api/changes and /api/history/:layer read from an enabled store", asyn
     assert.deepEqual(hbody.events.map((e) => e.id).sort(), ["q1", "q2"]);
   } finally {
     closeDb(); // leave persistence disabled for any later tests
+  }
+});
+
+test("GET /api/alerts degrades gracefully when persistence is disabled", async () => {
+  closeDb();
+  const res = await get("/api/alerts");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json(), { enabled: false });
+});
+
+test("GET /api/alerts rejects a malformed since", async () => {
+  const res = await get("/api/alerts?since=not-a-date");
+  assert.equal(res.status, 400);
+});
+
+test("GET /api/alerts returns fired alerts and the health of every configured rule", async () => {
+  const db = openDb(":memory:");
+  const previousRules = process.env.OSIRIS_ALERT_RULES_PATH;
+  // Point at the committed example so the route has real rules to report on.
+  process.env.OSIRIS_ALERT_RULES_PATH = fileURLToPath(new URL("../config/alert-rules.example.json", import.meta.url));
+  try {
+    recordFired(db, {
+      ruleId: "taiwan-strait-seismic", layer: "seismic", entityId: "q1", reason: "appeared",
+      firedAt: new Date().toISOString(), severity: 4, name: "M5.2 near Hualien",
+      payload: JSON.stringify({ id: "q1", name: "M5.2 near Hualien", lat: 23.9, lon: 121.5 })
+    });
+
+    const res = await get("/api/alerts");
+    assert.equal(res.status, 200);
+    const body = res.json();
+    assert.equal(body.enabled, true);
+    assert.deepEqual(body.alerts.map((a) => a.id), ["q1"]);
+    // The entity is rebuilt from the payload so the panel can fly to it.
+    assert.equal(body.alerts[0].entity.lat, 23.9);
+
+    // Every configured rule appears, including ones that have never fired —
+    // otherwise an inert rule is invisible rather than flagged.
+    const fired = body.rules.find((r) => r.id === "taiwan-strait-seismic");
+    const neverFired = body.rules.find((r) => r.id === "nuclear-keywords");
+    assert.equal(fired.fires, 1);
+    assert.ok(fired.lastFiredAt);
+    assert.equal(neverFired.fires, 0, "a rule that never matched is still listed");
+    assert.equal(neverFired.lastFiredAt, null);
+  } finally {
+    if (previousRules === undefined) delete process.env.OSIRIS_ALERT_RULES_PATH;
+    else process.env.OSIRIS_ALERT_RULES_PATH = previousRules;
+    closeDb();
   }
 });

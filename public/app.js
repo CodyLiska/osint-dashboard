@@ -1,7 +1,7 @@
 import { layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
-  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime,
+  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
   CLUSTER_MAX_ZOOM
 } from "./logic.js";
 
@@ -1184,6 +1184,64 @@ async function renderChanges() {
   });
 }
 
+let alertItems = [];
+
+async function renderAlerts() {
+  const panel = document.querySelector("#alerts-result");
+  if (!panel) return;
+  panel.innerHTML = `<div class="health-empty">Loading alerts…</div>`;
+  let payload;
+  try {
+    payload = await fetchJson("/api/alerts");
+  } catch {
+    panel.innerHTML = `<div class="health-empty">Alert history unavailable.</div>`;
+    return;
+  }
+  if (!payload.enabled) {
+    panel.innerHTML = `<div class="health-empty">Alerting is disabled. It needs <code>OSIRIS_DB_PATH</code> (the dedupe lives in the history store) plus a rules file — see <code>config/alert-rules.example.json</code>.</div>`;
+    return;
+  }
+
+  const rules = payload.rules || [];
+  alertItems = payload.alerts || [];
+
+  const ruleRows = rules.map((rule) => {
+    const { state, label } = ruleHealth(rule);
+    const last = rule.lastFiredAt ? ` · ${relativeTime(rule.lastFiredAt)}` : "";
+    return `
+      <div class="rule-row ${state}">
+        <strong>${escapeHtml(rule.id)}</strong>
+        <span>${escapeHtml(label + last)}</span>
+      </div>`;
+  }).join("");
+
+  const alertRows = alertItems.map((alert) => `
+    <button class="feed-item" type="button">
+      <strong>${escapeHtml(String(alert.name || alert.id))}</strong>
+      <span>${escapeHtml(`${alert.ruleId} · ${alert.reason} · ${layerLabels.get(alert.layer) || alert.layer} · ${relativeTime(alert.firedAt)}`)}</span>
+    </button>`).join("");
+
+  panel.innerHTML = `
+    <div class="change-group">
+      <h3>Configured rules</h3>
+      ${rules.length ? ruleRows : `<div class="health-empty">No rules loaded. Create <code>config/alert-rules.json</code> to enable alerting.</div>`}
+    </div>
+    <div class="change-group">
+      <h3>Recent alerts</h3>
+      ${alertItems.length ? alertRows : `<div class="health-empty">No alerts have fired yet.</div>`}
+    </div>
+  `;
+
+  panel.querySelectorAll(".feed-item").forEach((button, index) => {
+    button.addEventListener("click", () => {
+      const entity = alertItems[index]?.entity;
+      if (!entity || !Number.isFinite(entity.lat) || !Number.isFinite(entity.lon)) return;
+      state.map.flyTo({ center: [entity.lon, entity.lat], zoom: 5 });
+      showDetail(entity);
+    });
+  });
+}
+
 function changeGroupHtml(title, dir, items) {
   if (!items.length) return "";
   const rows = items.map((change) => {
@@ -1251,6 +1309,7 @@ function switchReconTab(tabId) {
   document.querySelector(`#${tabId}`)?.classList.add("active");
   // The What-Changed panel is fetched lazily each time it is opened.
   if (tabId === "changes") renderChanges();
+  if (tabId === "alerts") renderAlerts();
 }
 
 // Push a lookup onto the persisted history. `restore` maps input selectors to the
@@ -1449,6 +1508,7 @@ function wireReconTools() {
   });
 
   document.querySelector("#changes-refresh").addEventListener("click", renderChanges);
+  document.querySelector("#alerts-refresh").addEventListener("click", renderAlerts);
   document.querySelector("#changes-mark-seen").addEventListener("click", () => {
     // Acknowledge the current picture: subsequent "what changed" is relative to now.
     store.changesSince = new Date().toISOString();

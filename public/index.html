@@ -63,6 +63,7 @@
           <button class="tab" data-tab="cyber" type="button">Cyber</button>
           <button class="tab" data-tab="feeds" type="button">Feeds</button>
           <button class="tab" data-tab="changes" type="button">Changes</button>
+          <button class="tab" data-tab="alerts" type="button">Alerts</button>
         </div>
 
         <section class="tool-panel active" id="crypto">
@@ -127,6 +128,16 @@
             </div>
           </header>
           <div id="changes-result" class="changes-result">Events that appeared or dropped out of the feeds since your last visit.</div>
+        </section>
+
+        <section class="tool-panel" id="alerts">
+          <header class="changes-header">
+            <h2>Alert Rules</h2>
+            <div class="panel-actions">
+              <button class="ghost-button" id="alerts-refresh" type="button">Refresh</button>
+            </div>
+          </header>
+          <div id="alerts-result" class="changes-result">Rules that fired, and whether each configured rule has ever matched.</div>
         </section>
 
         <section class="recon-history" id="recon-history-panel" hidden>

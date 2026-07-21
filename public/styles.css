@@ -425,7 +425,7 @@ h1 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 4px;
 }
 
@@ -969,4 +969,50 @@ pre {
   color: var(--text);
   font-size: 12px;
   word-break: break-word;
+}
+
+/* Alert rule health rows. A rule that has never matched must look different
+   from one that is working but quiet — silence is otherwise ambiguous. */
+.rule-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.rule-row:last-child {
+  border-bottom: 0;
+}
+
+.rule-row span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.rule-row.never strong::before {
+  content: "⚠ ";
+  color: var(--warn, #fbbf24);
+}
+
+.rule-row.never span {
+  color: var(--warn, #fbbf24);
+}
+
+.rule-row.active strong::before {
+  content: "● ";
+  color: var(--accent);
+}
+
+.rule-row.quiet strong::before,
+.rule-row.disabled strong::before {
+  content: "○ ";
+  color: var(--muted);
+}
+
+.rule-row.disabled {
+  opacity: 0.55;
 }

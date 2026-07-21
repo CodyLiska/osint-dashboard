@@ -17,7 +17,7 @@ import {
 import { btcLookup, cveSearch, ethLookup, icsAdvisories, sanctionsSearch, vulnCheckKev } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
-import { getChanges, getDb, getHistory, openDb, persistSnapshot, startRetention } from "./src/lib/persist.js";
+import { getAlerts, getChanges, getDb, getHistory, openDb, persistSnapshot, ruleStats, startRetention } from "./src/lib/persist.js";
 import { currentRules, loadRules } from "./src/lib/alert-rules.js";
 import { evaluateAlerts } from "./src/lib/alerts.js";
 
@@ -168,6 +168,28 @@ async function handleApi(req, res, url) {
       }
       const since = raw || new Date(Date.now() - 86_400_000).toISOString();
       return sendJson(res, 200, getChanges(since), { ...jsonHeaders, "cache-control": "no-store" });
+    }
+
+    if (url.pathname === "/api/alerts") {
+      const raw = url.searchParams.get("since");
+      if (raw && Number.isNaN(Date.parse(raw))) {
+        return sendJson(res, 400, { error: "since must be an ISO 8601 timestamp" });
+      }
+      const since = raw || new Date(Date.now() - 7 * 86_400_000).toISOString();
+      const payload = getAlerts(since);
+      if (payload.enabled) {
+        // Join the configured rules against their fire counts so a rule that has
+        // never matched is visible as such, rather than just absent.
+        const stats = ruleStats();
+        payload.rules = currentRules().map((rule) => ({
+          id: rule.id,
+          enabled: rule.enabled,
+          layers: rule.layers,
+          fires: stats.get(rule.id)?.fires || 0,
+          lastFiredAt: stats.get(rule.id)?.lastFiredAt || null
+        }));
+      }
+      return sendJson(res, 200, payload, { ...jsonHeaders, "cache-control": "no-store" });
     }
 
     const historyMatch = url.pathname.match(/^\/api\/history\/([a-z0-9-]+)$/);
