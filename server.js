@@ -128,7 +128,7 @@ async function handleLayer(req, res, url, layer) {
   // OSIRIS_DB_PATH is set and the layer is persistable; a failure here must never
   // delay or break the layer response, so it is caught and logged.
   try {
-    persistSnapshot(layer, payload.entities);
+    persistSnapshot(layer, payload.entities, payload.meta);
   } catch (error) {
     console.error(`[persist] ${layer}:`, error.message);
   }

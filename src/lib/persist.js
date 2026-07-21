@@ -126,8 +126,13 @@ export function pruneOld(handle, retentionDays = 90, nowMs = Date.now()) {
 // Server-facing fire-and-forget write. No-op when persistence is disabled or the
 // layer is not in the allowlist. Synchronous (node:sqlite is sync) — callers wrap
 // it in try/catch AFTER sending the response so it can never delay or break one.
-export function persistSnapshot(layer, entities) {
+export function persistSnapshot(layer, entities, meta) {
   if (!db || !isPersistable(layer)) return;
+  // An optional-keyed source with no key returns an empty snapshot. Reconciling
+  // that would close-absentee the layer's entire history and report every record
+  // as "Dropped" — the source being switched off is not the same as its events
+  // having ended. Skip the write and leave the existing history intact.
+  if (meta?.configured === false) return;
   reconcile(db, layer, entities);
 }
 

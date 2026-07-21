@@ -23,15 +23,30 @@ Keep it LAN-only: the `/api/intel/*` and `/api/crypto/*` routes proxy external s
 
 ## Status / Next
 
-Active development. 7 of 8 README build phases done (2026-07-17): gazetteer + confidence (1), clustering + severity filters (2), per-layer polling (3), localStorage persistence (4), WHOIS/RDAP + OpenSanctions cross-check (5), versioned JSON datasets (6), snapshot export (8). All uncommitted on `main`.
+**PRODUCTION** — deployed on the homelab `ubuntu-g2` (192.168.12.230), LAN-only at http://192.168.12.230:8092 (`docker-compose.prod.yml`, non-root `node`), located at `06_Production_Apps/Homelab_Sever/osint-dashboard`. **210 tests** (`npm test`, zero deps).
 
-Remaining / next:
-- **Historical persistence (proposed, plan drafted 2026-07-19):** `docs/PLAN-persistence.md` — optional `node:sqlite` store (zero npm deps) for "what changed"/trends/durable-alert history. Event-shaped layers only (`seismic,weather,cyber,news,conflict,telegram`) via upsert+close-absentees reconcile; fire-and-forget after `sendJson` at `handleLayer`; fully optional (`OSIRIS_DB_PATH` unset = today's behavior); needs a non-root-writable Docker volume. NOT started — awaiting sign-off; log a decisions-log entry on execution. Candidate source catalog: `docs/FUTURE-DATA-SOURCES.md`.
-- README phase 7: authenticated adapters for additional higher-quota sources (open-ended; needs real API keys). `.env.example` documents all optional keys (FREE/PAID tagged).
-- Dead data to resolve: `staticLayers` no longer holds the unused `ports`/`news`/`space` arrays (they had no `staticKey`); confirm they should stay dropped.
-- Still NOT promoted/deployed: when feature-stable, relocate to `06_Production_Apps/Homelab_Sever/` and deploy per `docs/DEPLOY.md`.
+Uncommitted (2026-07-20) — critical-infra + humanitarian sources, IP-intel cards:
+- **4 new layers (batch 5).** `power-plants` (static, WRI v1.3.0, 3,245 plants ≥500MW plus all 195 nuclear, 814KB, `scripts/build-power-plants.mjs`); `infrastructure` (live, OSM/Overpass substations + comms towers, viewport-scoped); `advisories` (live keyless State Dept RSS, 208 countries); `reliefweb` (optional-keyed `RELIEFWEB_APPNAME`, persist:true).
+- **Catalog rows were stale again** — probe first: ReliefWeb v1 is decommissioned (410) + v2 is registration-gated; IAEA PRIS has no API (skipped, WRI nuclear covers it); the WRI "dataset" is a 12MB CSV in a ZIP.
+- **Fixed: Spain's centroid was the Canary Islands** (~1,800km off) — the upstream lists ES/TF/BQ twice and last-wins picked the island. Also added TW/XK/HK/MO, which the upstream omits entirely, so a Taiwan or Hong Kong internet outage was being silently dropped by IODA/Cloudflare. `country-centroids.json` is now v2 with a name→code map (287 keys incl. aliases); regenerate via `scripts/build-country-centroids.mjs` (it has a regression guard).
+- **Fixed: an optional-keyed persistable layer going graceful-off would close its entire history** — `persistSnapshot` reconciled an empty snapshot, closing every row and flooding "What Changed" with false drops. Now skips when `meta.configured === false`.
+- **Fixed: Overpass silently published failed queries as empty areas** — a server-side timeout returns HTTP 200 with a `remark`, which got cached as "no infrastructure here". Now treated as a failure.
+- **IP-intel card renderer (standing debt cleared).** `/api/intel/ip`'s 10-source fan-out renders as per-source cards (`intelCards` in `public/logic.js`, 11 tests) instead of a raw JSON dump: four distinct states (FLAGGED / CLEAN / NOT CONFIGURED / UNAVAILABLE), flagged sorted first, and the summary counts only sources that actually ran.
+- Shared `src/lib/xml.js` extracted (3rd consumer); `recon.js` now imports it.
 
-Uncommitted changes this session (2026-07-17), verified but not yet committed:
+Recent (2026-07-19, all committed):
+- **Optional historical persistence** (`node:sqlite`, enable via `OSIRIS_DB_PATH`): `src/lib/persist.js` reconcile store (upsert + close-absentees), read API `GET /api/changes` + `/api/history/:layer`, Docker `/app/data` volume, frontend "What Changed" recon tab. See `docs/PLAN-persistence.md` (Phase 5 timeline scrubber + durable alerts deferred).
+- **Single backend layer registry** (`src/adapters/layers.js`): adding a source = one `{ id, sourceName, load, persist }` row + one adapter. Bounded LRU cache (`OSIRIS_CACHE_MAX_ENTRIES`).
+- **21 new data sources** across 4 batches — see the status block + `DONE` markers in `docs/FUTURE-DATA-SOURCES.md`. Keyed sources are **optional graceful-off**; standing rule: add keyed sources with a needs-key caveat, never skip for being keyed.
+- Reusable infra: `/api/intel/ip` + `/api/intel/domain` fan-outs (10 / 4 sources), `deck.PolygonLayer` path (NWS), zero-dep two-body orbit propagator (`src/lib/orbit.js`, CelesTrak), shared country-centroids (`src/lib/centroids.js` + `public/data/country-centroids.json`).
+
+Next:
+- The geofence + keyword **alert-rules engine** (highest leverage remaining, builds on persistence + Slack notify).
+- Deferred sources (endpoints relocated): GPSJam, ransomware.live. IAEA PRIS skipped (no API).
+- README phase 7: authenticated higher-quota adapters (needs real keys).
+- Minor: rapid map panning skips Overpass refreshes (`state.refreshing` gate drops the moveend that lands mid-flight), so the infrastructure layer can lag the final viewport by one pan. Harmless today; a trailing re-check after the in-flight fetch would close it.
+
+Implemented 2026-07-17 (committed) — architecture reference:
 - Fixed a listener leak in `renderLayerControls` (`public/app.js`) — the per-render `{ once:true }` `change` listener accumulated and fired duplicate upstream fetches on every toggle (8x measured). Now one delegated listener wired once via `wireLayerControls()`.
 - `military` layer (no adapter) renders disabled/dimmed as "(soon)" instead of silently doing nothing (`public/app.js`, `public/styles.css`).
 - Added inline SVG favicon (`public/index.html`) — removes the 404.

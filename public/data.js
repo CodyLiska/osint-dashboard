@@ -2,7 +2,7 @@
 // public/data/. loadStaticLayers() fetches the ones the app renders client-side
 // (chokepoints, cctv, conflict) and returns them keyed by layer id. Each fetch is
 // best-effort: a missing dataset yields an empty layer rather than a hard failure.
-const STATIC_DATASETS = ["chokepoints", "cctv", "conflict", "military"];
+const STATIC_DATASETS = ["chokepoints", "cctv", "conflict", "military", "power-plants"];
 
 export async function loadStaticLayers() {
   const entries = await Promise.all(STATIC_DATASETS.map(async (name) => {
@@ -32,6 +32,10 @@ export const layerDefinitions = [
   { id: "ucdp", label: "Conflict (UCDP)", color: [190, 18, 60], live: true },
   { id: "nws", label: "NWS Alerts (US)", color: [124, 58, 237], live: true },
   { id: "ioda", label: "Internet Outages", color: [219, 39, 119], live: true },
+  { id: "advisories", label: "Travel Advisories", color: [217, 119, 6], live: true },
+  { id: "reliefweb", label: "Humanitarian (ReliefWeb)", color: [56, 189, 248], live: true },
+  { id: "infrastructure", label: "Infrastructure (OSM)", color: [163, 230, 53], live: true },
+  { id: "power-plants", label: "Power Plants", color: [250, 204, 21], staticKey: "power-plants" },
   { id: "cloudflare", label: "Cloudflare Radar", color: [251, 146, 60], live: true },
   { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true },
   { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true },

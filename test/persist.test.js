@@ -8,6 +8,7 @@ import {
   getHistory,
   isPersistable,
   openDb,
+  persistSnapshot,
   pruneOld,
   reconcile
 } from "../src/lib/persist.js";
@@ -187,6 +188,40 @@ test("getHistory returns events whose lifespan overlaps the window", () => {
 
     // a different layer has no events in the window
     assert.deepEqual(getHistory("cyber", {}).events, []);
+  } finally {
+    closeDb();
+  }
+});
+
+test("switching off a keyed source does not close its recorded history", () => {
+  // An optional-keyed layer with no key returns an empty snapshot. Reconciling
+  // that would close every stored record and report the whole layer as
+  // "Dropped" in the what-changed panel — the source going dark is not the same
+  // as its disasters having ended.
+  const db = openDb(":memory:");
+  try {
+    persistSnapshot("reliefweb", [{ id: "d1", name: "Sudan Floods" }], { configured: true });
+    persistSnapshot("reliefweb", [], { configured: false });
+
+    const stored = rows(db, "SELECT status FROM entity_events WHERE layer = 'reliefweb'");
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].status, "active", "history must survive the source being switched off");
+  } finally {
+    closeDb();
+  }
+});
+
+test("the off-source guard does not block a source that is switched on", () => {
+  // The guard keys on configured === false only; a configured source (or one
+  // whose adapter reports no meta at all) must still be recorded, or enabling a
+  // key would silently stop writing history.
+  const db = openDb(":memory:");
+  try {
+    persistSnapshot("reliefweb", [{ id: "d1", name: "Sudan Floods" }], { configured: true });
+    persistSnapshot("cyber", [{ id: "cve-1" }], undefined);
+
+    const stored = rows(db, "SELECT layer FROM entity_events ORDER BY layer");
+    assert.deepEqual(stored.map((r) => r.layer), ["cyber", "reliefweb"]);
   } finally {
     closeDb();
   }

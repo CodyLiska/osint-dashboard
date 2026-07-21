@@ -16,14 +16,21 @@ Nothing here is committed to. This is a planning catalog — drill into any row 
 
 ---
 
-## Status (updated 2026-07-19)
+## Status (updated 2026-07-20)
 
-**21 sources implemented across 4 batches** — see the `DONE 2026-07-19` markers on the rows below. 2 deferred (`ransomware.live` API relocated 302→404; `GPSJam` data host moved, path 404s).
+**25 sources implemented across 5 batches** — see the `DONE` markers on the rows below. 2 deferred (`ransomware.live` API relocated 302→404; `GPSJam` data host moved, path 404s), 1 skipped for having no API (`IAEA PRIS`, see §12).
 
 - **Batch 1 (core keyless):** GDELT, abuse.ch (ThreatFox / URLhaus / Feodo), Shodan InternetDB, CelesTrak.
 - **Batch 2 (hazards + conflict / cyber-IP):** GDACS, UCDP GED (optional-keyed), NWS warning polygons; Tor exit, Spamhaus DROP, MalwareBazaar (optional-keyed), crt.sh.
 - **Batch 3 (internet health / cyber-deepening):** RIPEstat, IODA, Cloudflare Radar (optional-keyed); URLScan.io, Ransomwhere, CISA ICS advisories, VulnCheck (optional-keyed).
 - **Batch 4 (air domain):** adsb.lol military aircraft (upgraded the `military-air` layer off the OpenSky heuristic).
+- **Batch 5 (critical infra + humanitarian):** WRI power plants (bundled static), OpenInfraMap via Overpass, US State Dept travel advisories; ReliefWeb (optional-keyed).
+
+> **Probe before trusting a row in this file.** Batch 5 found three of its five
+> candidate rows stale: ReliefWeb v1 is decommissioned (410) and v2 is
+> registration-gated, IAEA PRIS has no API at all, and the WRI "dataset" is a
+> 12MB CSV inside a ZIP. The `Key: none` column reflects what was true when the
+> row was written, not what is true today.
 
 Cross-cutting **Historical persistence (`node:sqlite`)** is also DONE (with the read API + "What Changed" panel). Still open cross-cutting: alert-rules engine, cross-source correlation, MITRE ATT&CK mapping.
 
@@ -198,8 +205,8 @@ humanitarian, advisory, and governance framing rather than raw event streams.
 
 | Source                              | Endpoint                   | Key      | License              | Reliability | Integration    | What it adds                                                                                       | Effort     |
 | ----------------------------------- | -------------------------- | -------- | -------------------- | ----------- | -------------- | -------------------------------------------------------------------------------------------------- | ---------- |
-| **ReliefWeb (UN OCHA)**             | `api.reliefweb.int`        | none     | Open                 | Good        | recon / layer  | Keyless humanitarian situation reports, disasters, crises by country. Authoritative crisis framing | Medium     |
-| **US State Dept Travel Advisories** | State Dept advisories feed | none     | US Gov public domain | Good        | layer / recon  | Country risk levels (1–4) + reasons. Simple keyless country-risk overlay                           | Low–Medium |
+| **ReliefWeb (UN OCHA)**             | `api.reliefweb.int`        | **free-reg** | Open             | Good        | recon / layer  | **DONE 2026-07-20** — `reliefweb` layer, optional-keyed. NOT keyless: v1 decommissioned (410), v2 rejects unregistered callers ("not an approved appname"). Set `RELIEFWEB_APPNAME`; graceful-off without it. No coordinates in the schema → placed on country centroids | Medium     |
+| **US State Dept Travel Advisories** | `travel.state.gov/_res/rss/TAsTWs.xml` | none | US Gov public domain | Good | layer / recon  | **DONE 2026-07-20** — `advisories` layer. Keyless RSS, 208 countries. Titles parse as "Country - Level N: advice"; feed lists each country ~twice so entries are deduped to the highest level. Levels 1/2/3/4 → severity 1/2/4/5 | Low–Medium |
 | **IFES ElectionGuide**              | `electionguide.org`        | free-reg | Free                 | Medium      | recon          | Upcoming elections calendar — flashpoint scheduling                                                | Low        |
 | **V-Dem / Freedom House**           | annual datasets            | none     | Open (datasets)      | Good        | recon / enrich | Governance / democracy indices for entity + country context                                        | Medium     |
 
@@ -210,12 +217,12 @@ event streams.
 
 | Source                        | Endpoint                     | Key      | License   | Reliability | Integration   | What it adds                                                                                | Effort     |
 | ----------------------------- | ---------------------------- | -------- | --------- | ----------- | ------------- | ------------------------------------------------------------------------------------------- | ---------- |
-| **OpenInfraMap**              | OSM Overpass / tiles         | none     | ODbL      | Good        | layer         | Power grid, pipelines, telecom infrastructure (OSM-derived). Keyless physical-infra overlay | Medium     |
-| **WRI Global Power Plant DB** | dataset (WRI)                | none     | CC-BY     | Good        | layer         | ~28k power plants worldwide with fuel type + capacity                                       | Low–Medium |
+| **OpenInfraMap**              | `overpass-api.de/api/interpreter` | none | ODbL   | Medium      | layer         | **DONE 2026-07-20** — `infrastructure` layer. Substations + communications towers (NOT plants; WRI covers those). Viewport-scoped: refuses above `OVERPASS_MAX_AREA` (12 deg2) since the shared endpoint rate-limits (429) and gateway-times-out. Each feature type gets its own `out` budget or dense substations crowd out every tower. A `remark` in a 200 response means the query timed out — treated as failure, never cached as an empty area | Medium     |
+| **WRI Global Power Plant DB** | dataset ZIP (WRI v1.3.0)     | none     | CC-BY     | Good        | layer         | **DONE 2026-07-20** — `power-plants` static layer, 3,245 of 34,936 plants (`capacity >= 500MW` OR nuclear at any size), 814KB. Bundled not fetched: the upstream is a frozen 2021 12MB CSV inside a ZIP. Regenerate with `node scripts/build-power-plants.mjs`. Its 195 nuclear sites cover what IAEA PRIS would have provided | Low–Medium |
 | **Global Energy Monitor**     | GEM datasets / trackers      | free-reg | CC-BY     | Good        | layer / recon | Plants, pipelines, LNG terminals, coal/steel trackers. Asset-level energy geography         | Medium     |
 | **ENTSO-E Transparency**      | `transparency.entsoe.eu` API | free-reg | Free      | Good        | recon / layer | European electricity load, generation, cross-border flows                                   | Medium     |
 | **Electricity Maps**          | `api.electricitymap.org`     | free-reg | Free tier | Good        | layer / recon | Real-time grid production + carbon intensity by zone                                        | Low–Medium |
-| **IAEA PRIS**                 | `pris.iaea.org`              | none     | Open      | Good        | recon / layer | Nuclear reactor database — status, type, location                                           | Low–Medium |
+| **IAEA PRIS**                 | `pris.iaea.org`              | none     | Open      | Good        | recon / layer | **SKIPPED 2026-07-20** — no API. PRIS is an ASP.NET site serving HTML only; there is no JSON/CSV endpoint, so this would mean scraping stateful WebForms pages. The WRI power-plant layer already carries all 195 nuclear sites with coordinates and capacity, so the scrape would buy nothing. Revisit only if reactor *status* (operational/shutdown/under-construction) becomes worth the fragility | Low–Medium |
 | **OpenCellID**                | `opencellid.org` API         | free-reg | CC-BY-SA  | Medium      | layer         | Cell-tower locations — telecom-infra + geolocation reference                                | Medium     |
 
 ## 13. Health / biosurveillance

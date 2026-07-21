@@ -13,7 +13,7 @@ export function escapeHtml(value) {
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt", "gdacs", "ucdp"]);
+export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt", "gdacs", "ucdp", "power-plants", "infrastructure"]);
 export const CLUSTER_MIN_POINTS = 15;
 export const CLUSTER_MAX_ZOOM = 5;
 
@@ -237,4 +237,190 @@ export function snapshotEntity(item) {
     ...(item.url ? { url: item.url } : {}),
     ...(item.summary || item.text ? { note: String(item.summary || item.text).slice(0, 300) } : {})
   };
+}
+
+// ---- IP / domain intelligence cards ---------------------------------------
+// The /api/intel/ip fan-out returns { indicator, type, results: [{source, data,
+// error}] } across ten sources with ten different payload shapes. Rendering the
+// raw JSON made the analyst read a wall of text to answer one question: did
+// anything flag this indicator? Each source gets a renderer that pulls out its
+// verdict and the few facts that justify it.
+
+// A source is in one of four states, and they must not look alike: "flagged"
+// (a positive threat hit), "clean" (checked, nothing found), "off" (no API key
+// configured), and "failed" (the lookup errored).
+const INTEL_STATE = {
+  flagged: { label: "FLAGGED", className: "flagged" },
+  clean: { label: "CLEAN", className: "clean" },
+  off: { label: "NOT CONFIGURED", className: "off" },
+  failed: { label: "UNAVAILABLE", className: "failed" }
+};
+
+function intelState(key) {
+  return INTEL_STATE[key] || INTEL_STATE.failed;
+}
+
+// Per-source renderers. Each returns { state, facts: [[label, value], ...] }.
+// A source with no renderer falls back to a generic key/value dump, so adding a
+// source to the fan-out degrades gracefully instead of disappearing.
+const INTEL_RENDERERS = {
+  "AbuseIPDB"(d) {
+    const score = Number(d.abuseConfidenceScore) || 0;
+    return {
+      state: score >= 25 ? "flagged" : "clean",
+      facts: [
+        ["Abuse score", `${score}/100`],
+        ["Reports", d.totalReports],
+        ["Country", d.countryCode],
+        ["ISP", d.isp],
+        ["Usage", d.usageType]
+      ]
+    };
+  },
+  "GreyNoise Community"(d) {
+    // "noise" means mass-scanning infrastructure; "riot" means a known-benign
+    // common service, which is a reassurance rather than a hit.
+    return {
+      state: d.noise ? "flagged" : "clean",
+      facts: [
+        ["Classification", d.classification],
+        ["Internet noise", d.noise ? "yes — mass scanner" : "no"],
+        ["Known-good service", d.riot ? `yes${d.name ? ` (${d.name})` : ""}` : "no"],
+        ["Last seen", d.last_seen],
+        ["Note", d.noise || d.riot ? null : d.message]
+      ]
+    };
+  },
+  "VirusTotal"(d) {
+    const stats = d.last_analysis_stats || {};
+    const malicious = Number(stats.malicious) || 0;
+    const suspicious = Number(stats.suspicious) || 0;
+    return {
+      state: malicious + suspicious > 0 ? "flagged" : "clean",
+      facts: [
+        ["Detections", `${malicious} malicious · ${suspicious} suspicious · ${Number(stats.harmless) || 0} clean`],
+        ["Reputation", d.reputation],
+        ["Owner", d.as_owner],
+        ["Country", d.country]
+      ]
+    };
+  },
+  "Shodan InternetDB"(d) {
+    const vulns = d.vulns || [];
+    const ports = d.ports || [];
+    return {
+      // Exposed ports alone are not a threat verdict; known CVEs are.
+      state: vulns.length ? "flagged" : "clean",
+      facts: [
+        ["Open ports", ports.length ? ports.join(", ") : "none found"],
+        ["Known CVEs", vulns.length ? vulns.join(", ") : null],
+        ["Hostnames", d.hostnames],
+        ["Tags", d.tags]
+      ]
+    };
+  },
+  "Feodo Tracker"(d) {
+    return {
+      state: d.c2 ? "flagged" : "clean",
+      facts: d.c2
+        ? [["Verdict", "Known botnet C2 server"], ["Malware", d.malware], ["Port", d.port], ["Status", d.status], ["First seen", d.first_seen]]
+        : [["Verdict", "Not a known botnet C2"]]
+    };
+  },
+  "ThreatFox"(d) {
+    const rows = Array.isArray(d.data) ? d.data : [];
+    return {
+      state: rows.length ? "flagged" : "clean",
+      facts: rows.length
+        ? [["Verdict", "Listed as an indicator of compromise"], ["Malware", rows[0].malware_printable], ["Threat type", rows[0].threat_type], ["Confidence", rows[0].confidence_level]]
+        : [["Verdict", "No IOC match"]]
+    };
+  },
+  "URLhaus"(d) {
+    const urls = d.urls || [];
+    return {
+      state: urls.length ? "flagged" : "clean",
+      facts: urls.length
+        ? [["Verdict", `${urls.length} malicious URL(s) hosted`], ["Most recent", urls[0].url], ["Status", urls[0].url_status]]
+        : [["Verdict", "No malware-hosting URLs known"]]
+    };
+  },
+  "Tor Exit Nodes"(d) {
+    return {
+      state: d.torExit ? "flagged" : "clean",
+      facts: [["Verdict", d.torExit ? "Tor exit node — traffic origin is anonymized" : "Not a Tor exit node"]]
+    };
+  },
+  "Spamhaus DROP"(d) {
+    return {
+      state: d.listed ? "flagged" : "clean",
+      facts: d.listed
+        ? [["Verdict", "In a hijacked / criminal-controlled netblock"], ["Netblock", d.cidr], ["SBL ref", d.sbl]]
+        : [["Verdict", "Not in a DROP-listed netblock"]]
+    };
+  },
+  "RIPEstat"(d) {
+    // Pure enrichment — network context, never a threat verdict.
+    return {
+      state: "clean",
+      facts: [
+        ["ASN", Array.isArray(d.asns) ? d.asns.join(", ") : d.asns],
+        ["Prefix", d.prefix],
+        ["Holder", d.holder]
+      ]
+    };
+  }
+};
+
+function genericFacts(data) {
+  return Object.entries(data)
+    .filter(([, value]) => value != null && value !== "" && !(Array.isArray(value) && !value.length))
+    .slice(0, 6)
+    .map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : String(value)]);
+}
+
+// Turns one fan-out result into a card. Exported for tests; app.js renders the
+// full set through intelCards().
+export function intelCard(result) {
+  const source = result.source || "Unknown source";
+  let state = "failed";
+  let facts = [];
+
+  if (result.error) {
+    // "not configured" is an operator action, not a source failure — an analyst
+    // must be able to tell "we did not check" from "we checked and found nothing".
+    state = /not configured|api[_ ]key|appname/i.test(result.error) ? "off" : "failed";
+    facts = [["Reason", result.error]];
+  } else if (result.data) {
+    const renderer = INTEL_RENDERERS[source];
+    const rendered = renderer ? renderer(result.data) : { state: "clean", facts: genericFacts(result.data) };
+    state = rendered.state;
+    facts = rendered.facts;
+  }
+
+  const { label, className } = intelState(state);
+  const rows = facts.map(([key, value]) => kvRow(key, value)).join("");
+  return `<div class="intel-card ${className}">
+    <div class="intel-card-head"><strong>${escapeHtml(source)}</strong><span class="intel-verdict ${className}">${label}</span></div>
+    ${rows || kvRow("Result", "No details returned")}
+  </div>`;
+}
+
+// Renders the whole fan-out, flagged sources first so a hit is never buried
+// below nine clean cards, with a one-line summary at the top.
+export function intelCards(payload) {
+  const results = payload?.results || [];
+  if (!results.length) return "";
+
+  const cards = results.map((result) => ({ result, html: intelCard(result) }));
+  const rank = (html) => (html.includes("intel-card flagged") ? 0 : html.includes("intel-card clean") ? 1 : 2);
+  cards.sort((a, b) => rank(a.html) - rank(b.html));
+
+  const flagged = cards.filter((c) => rank(c.html) === 0).length;
+  const checked = cards.filter((c) => rank(c.html) < 2).length;
+  const summary = flagged
+    ? `<div class="badge danger">${flagged} of ${checked} source(s) flagged this indicator</div>`
+    : `<div class="badge ok">No hits across ${checked} checked source(s)</div>`;
+
+  return `${summary}<div class="intel-cards">${cards.map((c) => c.html).join("")}</div>`;
 }

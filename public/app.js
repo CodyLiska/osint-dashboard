@@ -1,7 +1,7 @@
 import { layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
-  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, cveDetail, relativeTime,
+  detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime,
   CLUSTER_MAX_ZOOM
 } from "./logic.js";
 
@@ -82,19 +82,24 @@ const LAYER_REFRESH_MS = {
   nws: 300_000,
   ioda: 300_000,
   cloudflare: 1_800_000,
-  sanctions: 1_800_000
+  sanctions: 1_800_000,
+  // Advisories change on the order of weeks and OSM infrastructure barely at
+  // all; both upstreams are courtesy-use, so they poll slowly.
+  advisories: 3_600_000,
+  reliefweb: 900_000,
+  infrastructure: 1_800_000
 };
 // One ticker checks every layer's elapsed time against its cadence, so intervals
 // are measured from the last actual fetch (a manual or viewport refresh resets the
 // clock) rather than fixed wall-clock multiples.
 const POLL_TICK_MS = 15_000;
-const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports"]);
+const VIEWPORT_AWARE_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports", "infrastructure"]);
 
 // Live layers fetched with the current viewport bbox; every other live layer
 // fetches globally. (A superset of VIEWPORT_AWARE_LAYERS — maritime also loads
 // with bounds but isn't re-fetched on map move.) Any live layer not listed here
 // simply fetches globally, so a new source needs no change to ensureLayer.
-const BOUNDS_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports", "maritime"]);
+const BOUNDS_LAYERS = new Set(["aviation", "military-air", "fires", "weather", "ports", "maritime", "infrastructure"]);
 
 const els = {
   layerList: document.querySelector("#layer-list"),
@@ -296,7 +301,51 @@ const iodaIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 const iodaIconMapping = {
   ioda: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
 };
+// Travel advisories: a passport-style shield with a warning bar.
+const advisoriesIconPath = "M32 5 10 14v18c0 13.7 9.2 23.6 22 27 12.8-3.4 22-13.3 22-27V14L32 5Zm-3 12h6v18h-6V17Zm0 23h6v6h-6v-6Z";
+const advisoriesIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${advisoriesIconPath}"/>
+</svg>
+`)}`;
+const advisoriesIconMapping = {
+  advisories: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true }
+};
+// ReliefWeb: humanitarian aid / relief hands.
+const reliefIconPath = "M32 10c-4 0-7 2.6-8.4 6.2C22.2 15.4 20.6 15 19 15c-5 0-9 4-9 9 0 6.4 5.6 12.4 12.5 17.6L32 49l9.5-7.4C48.4 36.4 54 30.4 54 24c0-5-4-9-9-9-1.6 0-3.2.4-4.6 1.2C39 12.6 36 10 32 10Zm-3 34H15v6h34v-6H35v-3h-6v3Z";
+const reliefIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${reliefIconPath}"/>
+</svg>
+`)}`;
+const reliefIconMapping = {
+  reliefweb: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 44, mask: true }
+};
+// Infrastructure: a transmission pylon.
+const infraIconPath = "M22 6h20v5H22V6Zm-1 9h22l9 43h-6l-2-10H20l-2 10h-6l9-43Zm4.5 6-1.5 7h16l-1.5-7h-13Zm-2.8 13-1.5 7h23.6l-1.5-7H22.7Z";
+const infraIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${infraIconPath}"/>
+</svg>
+`)}`;
+const infraIconMapping = {
+  infrastructure: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 56, mask: true }
+};
+// Power plants: cooling tower with a plume.
+const powerIconPath = "M20 24h24l6 34H14l6-34Zm4 6-1 6h18l-1-6H24Zm-3 12-2 10h26l-2-10H21ZM31 4h6l-4 10h6L29 22l3-9h-5l4-9Z";
+const powerIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${powerIconPath}"/>
+</svg>
+`)}`;
+const powerIconMapping = {
+  "power-plants": { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 56, mask: true }
+};
 const menuIcons = {
+  advisories: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${advisoriesIconPath}"/></svg>`,
+  reliefweb: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${reliefIconPath}"/></svg>`,
+  infrastructure: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${infraIconPath}"/></svg>`,
+  "power-plants": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${powerIconPath}"/></svg>`,
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
   fires: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33 59c-11.7 0-21-8.4-21-20 0-8.5 5.3-14.5 10.2-20.2 2.8-3.2 5.4-6.2 6.5-9.8.3-1.1 1.7-1.4 2.4-.5 3.6 4.4 5.3 9.2 5.1 14.5 2.1-1.7 3.7-4.1 4.8-7.1.4-1.1 1.9-1.2 2.5-.2C48.4 23.4 52 30.2 52 38.5 52 50.3 44.4 59 33 59Zm-1.2-8.5c5.4 0 9.2-3.8 9.2-9 0-4.2-1.9-7.7-4.7-11.7-.9 2.6-2.4 4.9-4.8 6.8-.9.7-2.3 0-2.1-1.2.5-3.9-.3-7.2-2.2-10.3-3.3 4-6.2 8.2-6.2 14.2 0 6.4 4.7 11.2 10.8 11.2Z"/></svg>`,
@@ -940,6 +989,78 @@ function buildIconLayer(id, data) {
       });
     }
 
+    if (id === "advisories") {
+      return new deck.IconLayer({
+        id: "advisory-icons",
+        data,
+        pickable: true,
+        iconAtlas: advisoriesIconAtlas,
+        iconMapping: advisoriesIconMapping,
+        getIcon: () => "advisories",
+        getPosition: (d) => [d.lon, d.lat],
+        // Size tracks the advisory level so Level 4 countries read at a glance.
+        getSize: (d) => 16 + Math.min(14, (d.severity || 1) * 3),
+        getColor: (d) => d.severity >= 5 ? [220, 38, 38, 245]
+          : d.severity >= 4 ? [234, 88, 12, 240]
+            : [217, 119, 6, 210],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "reliefweb") {
+      return new deck.IconLayer({
+        id: "reliefweb-icons",
+        data,
+        pickable: true,
+        iconAtlas: reliefIconAtlas,
+        iconMapping: reliefIconMapping,
+        getIcon: () => "reliefweb",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 20 + Math.min(12, (d.severity || 1) * 2),
+        getColor: (d) => d.severity >= 5 ? [125, 211, 252, 245] : [56, 189, 248, 235],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "infrastructure") {
+      return new deck.IconLayer({
+        id: "infrastructure-icons",
+        data,
+        pickable: true,
+        iconAtlas: infraIconAtlas,
+        iconMapping: infraIconMapping,
+        getIcon: () => "infrastructure",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 18 + Math.min(10, (d.severity || 1) * 2),
+        getColor: () => [...(palette.get("infrastructure") || [255, 255, 255]), 235],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "power-plants") {
+      return new deck.IconLayer({
+        id: "power-plant-icons",
+        data,
+        pickable: true,
+        iconAtlas: powerIconAtlas,
+        iconMapping: powerIconMapping,
+        getIcon: () => "power-plants",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 18 + Math.min(12, (d.severity || 1) * 2),
+        // Nuclear (severity 5) reads hot; everything else stays amber.
+        getColor: (d) => d.severity >= 5 ? [248, 113, 113, 245] : [250, 204, 21, 225],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
     return new deck.ScatterplotLayer({
       id: `scatter-${id}`,
       data,
@@ -1255,10 +1376,17 @@ async function runIntelLookup() {
     const payload = await fetchJson(route);
     result.innerHTML = kind === "whois"
       ? renderWhois(payload)
-      : `<div class="result-refs">${intelLinks(kind, q)}</div><pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 10000))}</pre>`;
+      : `<div class="result-refs">${intelLinks(kind, q)}</div>${renderIntelResult(payload)}`;
   } catch (error) {
     result.textContent = error.message;
   }
+}
+
+// Fan-out lookups (IP, domain) render as per-source cards. Single-source kinds
+// (URL, file hash) have no results[] array and keep the raw JSON view.
+function renderIntelResult(payload) {
+  const cards = intelCards(payload);
+  return cards || `<pre>${escapeHtml(JSON.stringify(payload, null, 2).slice(0, 10000))}</pre>`;
 }
 
 function renderWhois(payload) {

@@ -1,26 +1,7 @@
 import { cachedResilient } from "../lib/cache.js";
 import { fetchJson, fetchJsonRetry, fetchTextRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
-
-function decodeXml(value = "") {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .trim();
-}
-
-function tag(block, name) {
-  const match = block.match(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`));
-  return decodeXml(match?.[1] || "");
-}
-
-function tags(block, name) {
-  return [...block.matchAll(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`, "g"))]
-    .map((match) => decodeXml(match[1]));
-}
+import { decodeXml, tag, tags } from "../lib/xml.js";
 
 function parseOfacCryptoAddresses(xml) {
   const rows = [];

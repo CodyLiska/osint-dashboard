@@ -16,6 +16,9 @@ import { ucdpLayer } from "./ucdp.js";
 import { nwsAlertsLayer } from "./nws.js";
 import { iodaLayer } from "./ioda.js";
 import { cloudflareRadarLayer } from "./cloudflare.js";
+import { advisoriesLayer } from "./advisories.js";
+import { reliefWebLayer } from "./reliefweb.js";
+import { infrastructureLayer } from "./overpass.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -58,6 +61,19 @@ const LAYERS = [
   { id: "ioda", sourceName: "IODA", load: () => iodaLayer(), persist: true },
   // Optional-keyed (CLOUDFLARE_API_TOKEN); Cloudflare's outage annotations with cause.
   { id: "cloudflare", sourceName: "Cloudflare Radar", load: () => cloudflareRadarLayer(), persist: false },
+  // Country risk levels 1-4. persist:false — every country always carries an
+  // advisory, so nothing ever appears or disappears; reconcile refreshes
+  // severity in place, which means a level change (the only real event here)
+  // would overwrite rather than record. Tracking those needs an append model.
+  { id: "advisories", sourceName: "US State Department", load: () => advisoriesLayer(), persist: false },
+  // Optional-keyed (RELIEFWEB_APPNAME). Disasters open and close with a stable
+  // record id at bounded volume → persistable. Safe now that persistSnapshot
+  // skips unconfigured snapshots instead of closing the whole history.
+  { id: "reliefweb", sourceName: "ReliefWeb (UN OCHA)", load: () => reliefWebLayer(), persist: true },
+  // OSM infrastructure, queried per viewport. persist:false — the entity set is
+  // a function of where the user is looking, so reconcile would close every
+  // record outside the current view on each pan.
+  { id: "infrastructure", sourceName: "OpenStreetMap / Overpass", load: (b) => infrastructureLayer(b), persist: false },
   { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak"), load: () => spaceWeatherLayer(), persist: false },
   { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false },
   { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false },
