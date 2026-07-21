@@ -1,0 +1,35 @@
+[
+  {
+    "id": "taiwan-strait-seismic",
+    "enabled": true,
+    "layers": ["seismic", "gdacs", "weather"],
+    "geofence": { "type": "bbox", "west": 118.0, "south": 21.5, "east": 123.0, "north": 26.5 },
+    "minSeverity": 3
+  },
+  {
+    "id": "nuclear-keywords",
+    "enabled": true,
+    "layers": ["gdelt", "news", "telegram"],
+    "keywords": ["reactor", "enrichment", "IAEA", "radiation"],
+    "minSeverity": 3
+  },
+  {
+    "id": "outages-of-interest",
+    "enabled": true,
+    "layers": ["ioda", "reliefweb"],
+    "countries": ["RU", "UA", "IR", "TW", "Israel"]
+  },
+  {
+    "id": "near-phoenix",
+    "enabled": false,
+    "layers": ["seismic", "weather"],
+    "geofence": { "type": "circle", "lat": 33.45, "lon": -112.07, "radiusKm": 200 }
+  },
+  {
+    "id": "critical-exploited-cves",
+    "enabled": true,
+    "layers": ["cyber"],
+    "keywords": ["exploited", "ransomware"],
+    "minSeverity": 5
+  }
+]

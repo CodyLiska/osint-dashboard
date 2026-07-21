@@ -7,3 +7,7 @@ node_modules/
 build-notes.md
 dev-notes.md
 .playwright-mcp/
+
+# Live alert rules encode what you are watching (closer to tasking than config).
+# The committed example documents the shape; the real file stays local.
+config/alert-rules.json
