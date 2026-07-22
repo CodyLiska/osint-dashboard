@@ -1,8 +1,8 @@
 # Implementation Plan — Recon Pane Layout
 
-Status: **Phases 1 and 2 done** (2026-07-20); **tab ceiling RESOLVED 2026-07-22**
-(`.tabs` wraps via `auto-fill` — see that section). Remaining: only the four open
-questions at the end (all non-blocking design choices).
+Status: **COMPLETE 2026-07-22.** Phases 1 and 2 done (2026-07-20); tab ceiling
+resolved (`.tabs` wraps via `auto-fill`); and all four open questions now resolved
+(pane widened 390→440; the other three decided — see "Open questions").
 
 ## Goal
 
@@ -190,21 +190,27 @@ measuring rather than eyeballing:
 - at 900px wide the stacked layout is byte-identical to today
 - no console errors after toggling repeatedly (listener accumulation)
 
-## Open questions
+## Open questions — RESOLVED 2026-07-22
 
-All four were left open by Phase 2 — none blocks it, and each is better answered
-after using the overlay than before.
+All four were left open by Phase 2. Resolved after using the overlay in the built
+app; three landed on the documented lean, one (width) was implemented.
 
-1. **Should the overlay be dismissible by clicking the map?** Natural for an
-   overlay, but risks closing it accidentally mid-lookup. Not built; still leaning
-   no.
-2. **Should opening a recon tab from elsewhere auto-open the pane?** E.g. an
-   alert notification deep-linking to the Alerts tab. Only matters if such links
-   are added.
-3. **Is 390px still the right width once it floats?** Now a one-line change —
-   `--recon-width` on `:root`, which both the CSS and the camera padding read. A
-   wider pane costs the map nothing while closed and would relieve the tab
-   ceiling.
-4. **Does the left pane want the same treatment eventually?** Probably not — it
-   is in continuous use — but if the map still feels cramped, that is the next
-   lever.
+1. **Dismissible by clicking the map? → NO (keep the explicit ‹/› toggle).**
+   The risk of closing it mid-lookup (typing an address, reading results) outweighs
+   the minor convenience, and the toggle is discoverable. It's an intentional
+   overlay, not an accidental one. Cheap to revisit if it annoys in real use.
+2. **Auto-open the pane when a recon tab is opened from elsewhere? → DEFER (N/A today).**
+   There are no deep-links into recon tabs: recon-history lives *inside* the pane
+   (so it's already open) and place-search has no tab. Revisit if a deep-link is
+   ever added (e.g. an alert notification → Alerts tab) — at which point auto-open
+   is the right behavior.
+3. **Is 390px still right once it floats? → NO — widened to 440px (DONE).**
+   Measured: with 11 recon tabs, 390 wrapped the bar to an awkward 3 rows [5,5,1];
+   `--recon-width: 440px` gives a clean [6,5] two rows (460 gains nothing). One-line
+   change on `:root`; CSS width, the topbar/entity shift, and the camera padding all
+   read the var. As an overlay it costs the map nothing while closed.
+4. **Does the left (layers) pane want the same overlay treatment? → NO (stays docked).**
+   It's in continuous use — you toggle layers constantly — and overlaying it would
+   hide the very list you're interacting with. The map-reclaim win came from the
+   recon overlay; the left pane already collapses via its own toggle when the map
+   needs the room. Revisit only if the map still feels cramped after that.

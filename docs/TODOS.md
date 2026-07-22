@@ -4,7 +4,7 @@ Outstanding work organized by **workstream** (how to work it), not by key status
 (how it was audited — that audit is preserved as the appendix at the bottom).
 
 **Organizing principles:**
-1. The 40 sources built on 2026-07-22 are **dormant until shipped** → deploy is P0.
+1. The 43 sources built (incl. this session's cables / Mastodon / GOES) are **dormant until shipped** → deploy is P0.
 2. "Keyed" ≠ "blocked" — it's *waiting on a free registration*: a Cody action → then a build batch.
 3. Imagery-that-needs-tiling clusters into **one infra epic** regardless of key status.
 
@@ -17,7 +17,7 @@ C-Tier-1 just needs ~5 free keys in `.env`). D is a separate focused project. E/
 
 Nothing new should stack on an unverified base.
 
-- [ ] Commit this session (40 sources, 399 tests) — draft message written in-session
+- [ ] Commit the uncommitted working tree — now **43 sources / 406 tests** (the big sweep + this session's Submarine Cables, Mastodon, and GOES). Draft message written in-session (may want a fresh one covering the newer adds)
 - [ ] **Redeploy** to the homelab (working tree is ahead of the deployed image incl. `b7f9bc6`)
 - [ ] **Homelab post-deploy verification:**
   - [ ] persistence store writing (`/api/changes`, `/app/data`)
@@ -78,14 +78,14 @@ imagery value is delivered without breaking the zero-dep / single-container rule
       both break a core rule for ~20% more value over the thumbnails. **Trigger to revisit:** a
       real need to overlay/zoom full-res imagery on the map in context with other layers.
 
-## E — Layout polish  ·  opportunistic (non-blocking)
+## E — Layout polish  ·  DONE 2026-07-22 (all 4 questions resolved)
 
-The 4 open `docs/PLAN-layout.md` questions — one tiny UX pass if the pane ever feels off.
+The 4 open `docs/PLAN-layout.md` questions — resolved (3 decided, 1 implemented).
 
-- [ ] Overlay dismissible by clicking the map? (leaning no)
-- [ ] Opening a recon tab from elsewhere auto-opens the pane? (only if deep-links are added)
-- [ ] Is 390px still right now that it floats? (a one-line `--recon-width` change)
-- [ ] Does the left pane want the overlay treatment too? (probably not — in continuous use)
+- [x] Dismissible by clicking the map? → **NO** — keep the explicit toggle (avoid closing mid-lookup).
+- [x] Auto-open the pane on a recon tab from elsewhere? → **DEFER** — no deep-links exist today; revisit when one is added.
+- [x] Is 390px still right? → **NO, widened to 440px** (measured: 11 tabs go from an awkward 3 rows [5,5,1] to a clean [6,5]). One-line `--recon-width` change; verified geometry.
+- [x] Left pane want the overlay treatment too? → **NO** — it's in continuous use; overlaying would hide the list you're toggling.
 
 ## F — Parked (revisit only on an external trigger)
 
@@ -104,16 +104,16 @@ The 4 open `docs/PLAN-layout.md` questions — one tiny UX pass if the pane ever
 # Appendix — source audit by key status (as of 2026-07-22)
 
 > Reference snapshot as of 2026-07-22. The source of truth is the `DONE`/`DEFERRED`/`DEAD`
-> markers in `docs/FUTURE-DATA-SOURCES.md`. **42 sources implemented; every unmarked row
+> markers in `docs/FUTURE-DATA-SOURCES.md`. **43 sources implemented; every unmarked row
 > below is genuinely untouched.** (Group B built Submarine Cable Map + Mastodon and
-> reclassified World Bank Debarred to keyed — reflected below.)
+> reclassified World Bank Debarred to keyed; Group D built NOAA GOES — reflected below.)
 
 ## KEYLESS (untouched → Group B, except the tiling ones → Group D)
 
 - §11 V-Dem / Freedom House (unprobed; annual datasets, low value — do last if ever)
 - §13 ECDC (no clean endpoint found — deferred → F) + Nextstrain (phylogeny trees, not situational — skipped → F)
-- §14 NOAA GOES (needs tiling → D), Umbra / Maxar Open Data / OpenAerialMap (needs tiling → D)
-- ~~§1 Submarine Cable Map~~ **DONE** (Group B) · ~~§5 Mastodon~~ **DONE** (Group B)
+- §14 Umbra / Maxar Open Data / OpenAerialMap (need COG tiling → D, parked)
+- ~~§1 Submarine Cable Map~~ **DONE** (Group B) · ~~§5 Mastodon~~ **DONE** (Group B) · ~~§14 NOAA GOES~~ **DONE** (Group D — GIBS pre-tiled, no COG tiling needed)
 
 ## KEYED (untouched → Group C)
 

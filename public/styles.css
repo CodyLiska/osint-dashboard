@@ -10,8 +10,11 @@
   --danger: #fb7185;
   --warn: #fbbf24;
   /* Recon overlay geometry. app.js reads --recon-width off the element so the
-     map's camera padding cannot drift from the CSS. */
-  --recon-width: 390px;
+     map's camera padding cannot drift from the CSS. Widened 390->440 (2026-07-22,
+     PLAN-layout Q3): with 11 recon tabs, 390 wrapped the bar to an awkward 3 rows
+     [5,5,1]; 440 gives a clean [6,5] two rows (measured — 460 gains nothing). As
+     an overlay it costs the map nothing while closed. */
+  --recon-width: 440px;
   --pane-transition: 220ms;
 }
 
