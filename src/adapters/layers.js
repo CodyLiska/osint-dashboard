@@ -25,6 +25,7 @@ import { tsunamiLayer } from "./tsunami.js";
 import { volcanoLayer } from "./gvp.js";
 import { pskReporterLayer } from "./pskreporter.js";
 import { satnogsLayer } from "./satnogs.js";
+import { cablesLayer } from "./cables.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -110,6 +111,9 @@ const LAYERS = [
   // a function of where the user is looking, so reconcile would close every
   // record outside the current view on each pan.
   { id: "infrastructure", sourceName: "OpenStreetMap / Overpass", load: (b) => infrastructureLayer(b), persist: false, geo: "real" },
+  // Keyless subsea cable routes (TeleGeography), rendered as LINES. persist:false —
+  // slow-changing reference infrastructure, not an appear/disappear event feed.
+  { id: "submarine-cables", sourceName: "TeleGeography", load: () => cablesLayer(), persist: false, geo: "real" },
   // geo:"synthetic" is a conservative call on a MIXED layer — satellite
   // sub-points are genuinely real, but the space-weather readings (Kp) are
   // pinned to NOAA Boulder as a symbolic marker. Since a geofence cannot mean

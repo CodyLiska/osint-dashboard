@@ -1,7 +1,8 @@
 # Implementation Plan — Recon Pane Layout
 
-Status: **Phases 1 and 2 done** (2026-07-20). Remaining: the tab ceiling (not yet
-hit) and the four open questions at the end.
+Status: **Phases 1 and 2 done** (2026-07-20); **tab ceiling RESOLVED 2026-07-22**
+(`.tabs` wraps via `auto-fill` — see that section). Remaining: only the four open
+questions at the end (all non-blocking design choices).
 
 ## Goal
 

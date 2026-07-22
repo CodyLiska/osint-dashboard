@@ -67,6 +67,7 @@
           <button class="tab" data-tab="econ" type="button">Econ</button>
           <button class="tab" data-tab="entity" type="button">Entity</button>
           <button class="tab" data-tab="scenes" type="button">Scenes</button>
+          <button class="tab" data-tab="social" type="button">Social</button>
         </div>
 
         <section class="tool-panel active" id="crypto">
@@ -189,6 +190,15 @@
             <button id="scenes-search" type="button">Search</button>
           </div>
           <div id="scenes-result" class="result-box">Recent low-cloud Sentinel-2 (10 m) scenes for a location, newest first — from the keyless Earth Search index of AWS Open Data. Click a scene to open the full-resolution preview.</div>
+        </section>
+
+        <section class="tool-panel" id="social">
+          <h2>Social Signal</h2>
+          <div class="field-row">
+            <input id="social-query" placeholder="Hashtag or keyword (e.g. osint, Ukraine)">
+            <button id="social-search" type="button">Search</button>
+          </div>
+          <div id="social-result" class="result-box">Recent public posts for a hashtag from the fediverse (keyless Mastodon public timeline; X/Twitter's free API is gone). Set MASTODON_INSTANCE to change the source instance.</div>
         </section>
 
         <section class="recon-history" id="recon-history-panel" hidden>

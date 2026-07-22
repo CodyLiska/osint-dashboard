@@ -20,6 +20,7 @@ import { geocode } from "./src/adapters/geo.js";
 import { fxRates, countryMacro } from "./src/adapters/economic.js";
 import { secCompany, wikidataEntity, gravatarProfile, githubUser } from "./src/adapters/entity.js";
 import { sceneSearch } from "./src/adapters/imagery.js";
+import { mastodonTag } from "./src/adapters/social.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
 import { getAlerts, getChanges, getDb, getHistory, getSnapshotAt, openDb, persistSnapshot, ruleStats, startRetention } from "./src/lib/persist.js";
 import { currentRules, loadRules } from "./src/lib/alert-rules.js";
@@ -283,6 +284,13 @@ async function handleApi(req, res, url) {
       const q = url.searchParams.get("q");
       if (!q) return sendJson(res, 400, { error: "q required" });
       const data = await withHealth("entity-github", "GitHub", () => githubUser(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/social/mastodon") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("mastodon", "Mastodon", () => mastodonTag(q));
       return sendJson(res, 200, data);
     }
 

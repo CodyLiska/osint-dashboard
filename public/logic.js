@@ -201,6 +201,21 @@ export function yesterdayUTC(now = Date.now()) {
   return new Date(now - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+// Mastodon hashtag results as a compact post feed (Social recon tab).
+export function socialResults(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  const posts = payload?.posts || [];
+  if (!posts.length) return `<div class="badge warn">No recent posts for #${escapeHtml(payload?.tag || "that tag")}.</div>`;
+  const head = `<div class="badge ok">#${escapeHtml(payload.tag)} · ${posts.length} recent · ${escapeHtml(payload.instance || "")}</div>`;
+  const items = posts.map((p) => `
+    <article class="social-post">
+      <header><strong>${escapeHtml(p.author)}</strong>${p.handle ? ` <span>${escapeHtml(p.handle)}</span>` : ""}${p.time ? ` <time>${escapeHtml(String(p.time).slice(0, 16).replace("T", " "))}</time>` : ""}</header>
+      <p>${escapeHtml(p.text)}</p>
+      <footer>♺ ${escapeHtml(String(p.reblogs ?? 0))} · ★ ${escapeHtml(String(p.favourites ?? 0))}${p.url ? ` · ${extLink(p.url, "Open")}` : ""}</footer>
+    </article>`).join("");
+  return `<div class="econ-body">${head}${items}<p class="result-note">Source: ${escapeHtml(payload.source || "Mastodon")}</p></div>`;
+}
+
 // Sentinel-2 scene-search results as a thumbnail grid (Scenes recon tab).
 export function sceneResults(payload, place) {
   if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;

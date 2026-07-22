@@ -52,6 +52,7 @@ export const layerDefinitions = [
   { id: "advisories", label: "Travel Advisories", color: [217, 119, 6], live: true, group: "conflict" },
   { id: "reliefweb", label: "Humanitarian (ReliefWeb)", color: [56, 189, 248], live: true, group: "conflict" },
   { id: "infrastructure", label: "Infrastructure (OSM)", color: [163, 230, 53], live: true, group: "infra" },
+  { id: "submarine-cables", label: "Submarine Cables", color: [56, 189, 248], live: true, group: "infra" },
   { id: "power-plants", label: "Power Plants", color: [250, 204, 21], staticKey: "power-plants", group: "infra" },
   { id: "cloudflare", label: "Cloudflare Radar", color: [251, 146, 60], live: true, group: "cyber" },
   { id: "space", label: "NOAA Space Weather", color: [129, 140, 248], live: true, group: "air" },

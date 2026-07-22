@@ -4,7 +4,7 @@ import {
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
   attackTags, correlationBanner, scrubberTime, replayEntities, boundsKey, CLUSTER_MAX_ZOOM,
   econFxBody, econMacroBody, entityCompanyBody, entityWikidataBody, entityGravatarBody, entityGithubBody,
-  gibsTileUrl, yesterdayUTC, sceneResults
+  gibsTileUrl, yesterdayUTC, sceneResults, socialResults
 } from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
@@ -395,6 +395,7 @@ const menuIcons = {
   volcanoes: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m17 58 13-31h8l13 31H17Z"/><path d="M28 18c-4-4-4-9 0-13 2 4 5 5 9 2 4 5 3 10-1 14 7 0 13 5 15 12H13c1-8 7-14 15-15Z"/></svg>`,
   pskreporter: `<svg viewBox="0 0 64 64" aria-hidden="true">${pskPaths.replace(/fill="white"/g, "")}</svg>`,
   satnogs: `<svg viewBox="0 0 64 64" aria-hidden="true">${dishPaths.replace(/fill="white"/g, "")}</svg>`,
+  "submarine-cables": `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="12" cy="32" r="7"/><circle cx="52" cy="32" r="7"/><path d="M12 29h40v6H12z"/></svg>`,
   "gibs-modis-truecolor": imageryMenuIcon,
   "gibs-viirs-truecolor": imageryMenuIcon,
   "gibs-black-marble": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M40 12a20 20 0 1 0 12 36 16 16 0 0 1-12-36Z"/><circle cx="20" cy="20" r="2.5"/><circle cx="14" cy="30" r="2"/><circle cx="24" cy="34" r="2"/></svg>`,
@@ -782,7 +783,36 @@ function deadReckonAircraft() {
   if (moved) renderMap();
 }
 
+function hexToRgb(hex, fallback = [56, 189, 248]) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!match) return fallback;
+  const n = parseInt(match[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
 function buildIconLayer(id, data) {
+    if (id === "submarine-cables") {
+      // Cables are LINES, not points — expand each cable's MultiLineString into
+      // one PathLayer row per segment, tagging each with its cable for click.
+      const segments = [];
+      for (const cable of data) {
+        for (const path of cable.paths || []) segments.push({ path, cable });
+      }
+      return new deck.PathLayer({
+        id: "cable-lines",
+        data: segments,
+        pickable: true,
+        widthUnits: "pixels",
+        getWidth: 1.4,
+        widthMinPixels: 1,
+        getPath: (d) => d.path,
+        getColor: (d) => hexToRgb(d.cable.color),
+        capRounded: true,
+        jointRounded: true,
+        onClick: ({ object }) => object && showDetail(object.cable)
+      });
+    }
+
     if (id === "nws") {
       // NWS alerts are areas, not points — draw the warning polygons.
       const color = palette.get("nws") || [255, 255, 255];
@@ -1665,7 +1695,7 @@ async function hydrateInitialLayers() {
 }
 
 // Short labels used to tag each recon-history row by its source tool.
-const RECON_TAB_LABELS = { crypto: "Wallet", sanctions: "SDN", intel: "IOC", cyber: "CVE", econ: "Econ", entity: "Entity", scenes: "Scene", place: "Place" };
+const RECON_TAB_LABELS = { crypto: "Wallet", sanctions: "SDN", intel: "IOC", cyber: "CVE", econ: "Econ", entity: "Entity", scenes: "Scene", social: "Social", place: "Place" };
 // Maps a history entry's tool back to the function that re-runs the lookup.
 // `place` is the top-bar map search, which has no recon tab (handled below).
 const RECON_TOOLS = {
@@ -1676,6 +1706,7 @@ const RECON_TOOLS = {
   econ: { run: runEconLookup },
   entity: { run: runEntityLookup },
   scenes: { run: runSceneSearch },
+  social: { run: runSocialSearch },
   place: { run: runPlaceSearch }
 };
 
@@ -1880,6 +1911,20 @@ async function runEconLookup() {
   }
 }
 
+async function runSocialSearch() {
+  const q = document.querySelector("#social-query").value.trim();
+  const result = document.querySelector("#social-result");
+  if (!q) return;
+  recordRecon("social", q, { "#social-query": q });
+  result.textContent = "Searching the fediverse...";
+  try {
+    const payload = await fetchJson(`/api/social/mastodon?q=${encodeURIComponent(q)}`);
+    result.innerHTML = socialResults(payload);
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
 async function runSceneSearch() {
   const q = document.querySelector("#scenes-query").value.trim();
   const result = document.querySelector("#scenes-result");
@@ -1962,6 +2007,7 @@ function wireReconTools() {
   document.querySelector("#econ-lookup").addEventListener("click", runEconLookup);
   document.querySelector("#entity-lookup").addEventListener("click", runEntityLookup);
   document.querySelector("#scenes-search").addEventListener("click", runSceneSearch);
+  document.querySelector("#social-search").addEventListener("click", runSocialSearch);
   // Swap the placeholder to match the selected entity kind.
   document.querySelector("#entity-kind").addEventListener("change", (event) => {
     document.querySelector("#entity-query").placeholder = {
