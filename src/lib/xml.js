@@ -31,6 +31,15 @@ export function rssItems(xml) {
     .map((chunk) => chunk.split("</item>")[0]);
 }
 
+// Atom counterpart to rssItems: splits a document into its <entry> bodies, for
+// feeds that use Atom rather than RSS (e.g. the NOAA tsunami warning centers).
+export function atomEntries(xml) {
+  return String(xml)
+    .split(/<entry[\s>]/)
+    .slice(1)
+    .map((chunk) => chunk.split("</entry>")[0]);
+}
+
 // Strips CDATA wrappers and markup from a tag body, for feeds that embed HTML
 // inside <description>.
 export function textContent(block, name) {

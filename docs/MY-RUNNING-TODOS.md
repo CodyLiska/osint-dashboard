@@ -6,13 +6,13 @@
 
 # DATA SOURCES LEFT TO IMPLEMENT
 
-- §4 SIGINT
-- §5 Person/Entity
-- §7 cyber
-- §8 economic
-- §9 environmental
-- §13 health
-- §14 imagery
+- §4 SIGINT — **DONE 2026-07-21: "Signals & Radio" group (PSKReporter HF receivers + SatNOGS ground stations). FCC ULS dead, PhishTank... (n/a). APRS.fi deferred (keyed, per-callsign). SDR §4a = hardware**
+- §5 Person/Entity — **DONE 2026-07-21: Entity tab (SEC EDGAR + Wikidata + Gravatar + GitHub). Hudson Rock deferred (host down at build). HIBP (paid)/OpenCorporates/Mastodon remain**
+- §7 cyber — **DONE 2026-07-21: OpenPhish added to the Intel domain fan-out. PhishTank dead (Cloudflare+key), CertStream deferred (WebSocket)**
+- §8 economic — **DONE 2026-07-21: Econ tab (Frankfurter FX + World Bank macro). Tab-bar ceiling fixed (wrapping grid). EIA/FRED/Comtrade remain (keyed)**
+- §9 environmental — **Batch 6 (2026-07-21): `tsunami` + `volcanoes` (GVP) DONE. Remaining: Safecast (radiation), Global Forest Watch (keyed)**
+- §13 health — **probed 2026-07-21: disease.sh (frozen COVID / US-only flu) and WHO (404 DON / non-situational GHO) are both dead. No live keyless outbreak source found**
+- §14 imagery — **2026-07-21: NASA GIBS (3 raster layers) + Earth Search STAC ("Scenes" tab, Sentinel-2 thumbnails) DONE. Domain now has a basemap + on-demand high-res. Remaining: COG tiling (stream Sentinel-2 `visual` into a map layer), Copernicus/Landsat, GOES/NICFI (one-row raster adds)**
 
 # Smaller debts ✅
 

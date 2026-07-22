@@ -64,6 +64,9 @@
           <button class="tab" data-tab="feeds" type="button">Feeds</button>
           <button class="tab" data-tab="changes" type="button">Changes</button>
           <button class="tab" data-tab="alerts" type="button">Alerts</button>
+          <button class="tab" data-tab="econ" type="button">Econ</button>
+          <button class="tab" data-tab="entity" type="button">Entity</button>
+          <button class="tab" data-tab="scenes" type="button">Scenes</button>
         </div>
 
         <section class="tool-panel active" id="crypto">
@@ -149,6 +152,43 @@
             </div>
           </header>
           <div id="alerts-result" class="changes-result">Rules that fired, and whether each configured rule has ever matched.</div>
+        </section>
+
+        <section class="tool-panel" id="econ">
+          <h2>Economic Context</h2>
+          <div class="field-row">
+            <select id="econ-kind">
+              <option value="fx">FX rates</option>
+              <option value="country">Country macro</option>
+            </select>
+            <input id="econ-query" placeholder="Base currency (USD)" value="USD">
+            <button id="econ-lookup" type="button">Lookup</button>
+          </div>
+          <div id="econ-result" class="result-box">ECB reference FX rates (Frankfurter) and World Bank country macro indicators — both keyless.</div>
+        </section>
+
+        <section class="tool-panel" id="entity">
+          <h2>Person / Entity OSINT</h2>
+          <div class="field-row">
+            <select id="entity-kind">
+              <option value="company">Company (SEC)</option>
+              <option value="wikidata">Entity (Wikidata)</option>
+              <option value="gravatar">Email (Gravatar)</option>
+              <option value="github">GitHub (username)</option>
+            </select>
+            <input id="entity-query" placeholder="Company name or ticker (e.g. Tesla, AAPL)">
+            <button id="entity-lookup" type="button">Lookup</button>
+          </div>
+          <div id="entity-result" class="result-box">Keyless entity OSINT — SEC EDGAR company filings, Wikidata entity resolution, and Gravatar email→profile. LAN-only by design.</div>
+        </section>
+
+        <section class="tool-panel" id="scenes">
+          <h2>Satellite Scenes</h2>
+          <div class="field-row">
+            <input id="scenes-query" placeholder="Place or address (e.g. Tokyo, Suez Canal)">
+            <button id="scenes-search" type="button">Search</button>
+          </div>
+          <div id="scenes-result" class="result-box">Recent low-cloud Sentinel-2 (10 m) scenes for a location, newest first — from the keyless Earth Search index of AWS Open Data. Click a scene to open the full-resolution preview.</div>
         </section>
 
         <section class="recon-history" id="recon-history-panel" hidden>

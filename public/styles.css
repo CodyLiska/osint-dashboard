@@ -495,7 +495,9 @@ h1 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* auto-fill wraps tabs to as many equal columns as fit (≥62px), flowing onto a
+     second row past ~5 tabs instead of clipping. Removes the old 7-tab ceiling. */
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
   gap: 4px;
 }
 
@@ -532,8 +534,45 @@ h1 {
 }
 
 #sanctions .field-row,
-#cyber .field-row {
+#cyber .field-row,
+#scenes .field-row {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scene-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.scene-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.scene-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+
+.scene-meta span {
+  color: var(--muted);
 }
 
 .field-row input,
@@ -587,6 +626,38 @@ pre {
 .badge.ok {
   background: rgba(45, 212, 191, 0.16);
   color: var(--accent);
+}
+
+.badge.warn {
+  background: rgba(234, 179, 8, 0.16);
+  color: #eab308;
+}
+
+/* Econ (and Entity) recon results render kv rows directly in the result box. */
+.econ-body .kv {
+  display: grid;
+  grid-template-columns: minmax(96px, 45%) 1fr;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.econ-body .kv span:first-child {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.econ-body .kv span:last-child {
+  color: var(--text);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.result-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .result-item {

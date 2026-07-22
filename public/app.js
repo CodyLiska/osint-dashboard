@@ -2,7 +2,9 @@ import { LAYER_GROUPS, layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
-  attackTags, correlationBanner, scrubberTime, replayEntities, boundsKey, CLUSTER_MAX_ZOOM
+  attackTags, correlationBanner, scrubberTime, replayEntities, boundsKey, CLUSTER_MAX_ZOOM,
+  econFxBody, econMacroBody, entityCompanyBody, entityWikidataBody, entityGravatarBody, entityGithubBody,
+  gibsTileUrl, yesterdayUTC, sceneResults
 } from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
@@ -352,11 +354,50 @@ const powerIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
 const powerIconMapping = {
   "power-plants": { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 56, mask: true }
 };
+// A cresting wave over a wavy waterline. The volcanoes layer reuses the existing
+// weather-atlas "volcano" glyph, so only tsunami needs a new atlas.
+const tsunamiIconPath = "M4 40c8-3 12-9 16-15 5-8 12-13 21-11 7 2 11 8 9 14-1 4-5 6-8 4-2-1-3-3-3-5 0-4-3-6-6-5-4 1-6 5-4 9 2 5 8 7 14 5-8 5-19 4-26-2-3 2-7 2-9-1-1-1-1-2 0-3 0 0 1 0 2 0Z";
+const tsunamiWaterPath = "M6 52c5 3 11 3 16 0s11-3 16 0 11 3 16 0v5c-5 3-11 3-16 0s-11-3-16 0-11 3-16 0v-5Z";
+const tsunamiIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <path fill="white" d="${tsunamiIconPath}"/>
+  <path fill="white" d="${tsunamiWaterPath}"/>
+</svg>
+`)}`;
+const tsunamiIconMapping = {
+  tsunami: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 42, mask: true }
+};
+// PSKReporter — a transmitter tower with two signal arcs.
+const pskPaths = `
+  <path fill="white" d="M29 26h6l5 32h-6l-1-7h-2l-1 7h-6l5-32z"/>
+  <circle fill="white" cx="32" cy="20" r="4"/>
+  <path fill="white" d="M21 23a16 16 0 0 1 4-9l3.4 3a11 11 0 0 0-3 6.4zm22 0a16 16 0 0 0-4-9l-3.4 3a11 11 0 0 1 3 6.4z"/>`;
+const pskIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">${pskPaths}</svg>
+`)}`;
+const pskIconMapping = { psk: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 52, mask: true } };
+// SatNOGS — a tilted parabolic dish on a stand.
+const dishPaths = `
+  <ellipse fill="white" cx="32" cy="24" rx="18" ry="10" transform="rotate(-25 32 24)"/>
+  <path fill="white" d="M29 33h5l3 21H26z"/>`;
+const dishIconAtlas = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">${dishPaths}</svg>
+`)}`;
+const dishIconMapping = { dish: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 50, mask: true } };
+// Framed-landscape glyph shared by the true-color imagery layers.
+const imageryMenuIcon = `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 12h48v40H8V12Zm5 5v22l13-13 7 7 8-8 13 13V17H13Z"/><circle cx="22" cy="26" r="4"/></svg>`;
 const menuIcons = {
   advisories: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${advisoriesIconPath}"/></svg>`,
   reliefweb: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${reliefIconPath}"/></svg>`,
   infrastructure: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${infraIconPath}"/></svg>`,
   "power-plants": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${powerIconPath}"/></svg>`,
+  tsunami: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${tsunamiIconPath}"/><path d="${tsunamiWaterPath}"/></svg>`,
+  volcanoes: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m17 58 13-31h8l13 31H17Z"/><path d="M28 18c-4-4-4-9 0-13 2 4 5 5 9 2 4 5 3 10-1 14 7 0 13 5 15 12H13c1-8 7-14 15-15Z"/></svg>`,
+  pskreporter: `<svg viewBox="0 0 64 64" aria-hidden="true">${pskPaths.replace(/fill="white"/g, "")}</svg>`,
+  satnogs: `<svg viewBox="0 0 64 64" aria-hidden="true">${dishPaths.replace(/fill="white"/g, "")}</svg>`,
+  "gibs-modis-truecolor": imageryMenuIcon,
+  "gibs-viirs-truecolor": imageryMenuIcon,
+  "gibs-black-marble": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M40 12a20 20 0 1 0 12 36 16 16 0 0 1-12-36Z"/><circle cx="20" cy="20" r="2.5"/><circle cx="14" cy="30" r="2"/><circle cx="24" cy="34" r="2"/></svg>`,
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
   fires: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33 59c-11.7 0-21-8.4-21-20 0-8.5 5.3-14.5 10.2-20.2 2.8-3.2 5.4-6.2 6.5-9.8.3-1.1 1.7-1.4 2.4-.5 3.6 4.4 5.3 9.2 5.1 14.5 2.1-1.7 3.7-4.1 4.8-7.1.4-1.1 1.9-1.2 2.5-.2C48.4 23.4 52 30.2 52 38.5 52 50.3 44.4 59 33 59Zm-1.2-8.5c5.4 0 9.2-3.8 9.2-9 0-4.2-1.9-7.7-4.7-11.7-.9 2.6-2.4 4.9-4.8 6.8-.9.7-2.3 0-2.1-1.2.5-3.9-.3-7.2-2.2-10.3-3.3 4-6.2 8.2-6.2 14.2 0 6.4 4.7 11.2 10.8 11.2Z"/></svg>`,
@@ -409,6 +450,40 @@ function initMap() {
     renderAll();
     refreshViewportAware();
   });
+}
+
+// Imagery layers are MapLibre raster sources, not deck.gl entity layers, so they
+// route around the adapter-fetch path entirely.
+const RASTER_IDS = new Set(layerDefinitions.filter((l) => l.raster).map((l) => l.id));
+
+// Add or remove a GIBS raster layer on the MapLibre map. Inserted BELOW the first
+// overlay layer so deck.gl entities always render on top of the imagery.
+function setImageryLayer(def, on) {
+  const map = state.map;
+  if (!map) return;
+  if (!map.isStyleLoaded()) {
+    map.once("load", () => setImageryLayer(def, on));
+    return;
+  }
+  const id = `img-${def.id}`;
+  if (on) {
+    if (!map.getSource(id)) {
+      map.addSource(id, {
+        type: "raster",
+        tiles: [gibsTileUrl(def.gibs, yesterdayUTC())],
+        tileSize: 256,
+        maxzoom: def.gibs.maxZoom,
+        attribution: "NASA GIBS / EOSDIS"
+      });
+    }
+    if (!map.getLayer(id)) {
+      const overlay = map.getStyle().layers.find((l) => l.id !== "osm" && !l.id.startsWith("img-"));
+      map.addLayer({ id, type: "raster", source: id, paint: { "raster-opacity": 0.88 } }, overlay?.id);
+    }
+  } else {
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  }
 }
 
 function saveViewport() {
@@ -465,9 +540,9 @@ function renderLayerRows(layers) {
       ? (staticLayers[layer.staticKey] || []).length
       : visibleEntities(layer.id).length;
     const menuIcon = menuIcons[layer.id] || "";
-    // No live adapter and no static dataset — nothing to load, so the toggle is
-    // disabled rather than silently doing nothing when checked.
-    const unavailable = !layer.live && !layer.staticKey;
+    // No live adapter, static dataset, or raster tiles — nothing to load, so the
+    // toggle is disabled rather than silently doing nothing when checked.
+    const unavailable = !layer.live && !layer.staticKey && !layer.raster;
     // Warn on an enabled live layer that is running keyless/fallback (e.g. FIRMS
     // with no key returns 0) or serving stale cached data because its upstream is
     // down — so an empty or old count isn't misread as "no data".
@@ -483,7 +558,7 @@ function renderLayerRows(layers) {
       <input type="checkbox" ${enabled ? "checked" : ""}${unavailable ? " disabled title=\"No data source yet\"" : ""} data-layer="${layer.id}">
       <span class="swatch ${menuIcon ? "icon-swatch" : ""}" style="--swatch: rgb(${layer.color.join(",")})">${menuIcon}</span>
       <span class="layer-label">${layer.label}${unavailable ? " (soon)" : ""}${flag ? ` <span class="flag-mark" aria-hidden="true">⚠</span>` : ""}</span>
-      <strong>${count}</strong>
+      <strong>${layer.raster ? "" : count}</strong>
     `;
     els.layerList.append(row);
   }
@@ -505,7 +580,11 @@ function wireLayerControls() {
     event.target.checked ? state.enabled.add(id) : state.enabled.delete(id);
     store.enabled = [...state.enabled];
     persist();
-    await ensureLayer(id);
+    if (RASTER_IDS.has(id)) {
+      setImageryLayer(layerDefinitions.find((l) => l.id === id), event.target.checked);
+    } else {
+      await ensureLayer(id);
+    }
     renderAll();
   });
 }
@@ -648,6 +727,7 @@ function renderMap() {
   let visibleTotal = 0;
 
   for (const id of active) {
+    if (RASTER_IDS.has(id)) continue; // imagery is a MapLibre raster layer, not a deck layer
     const rows = visibleEntities(id);
     visibleTotal += rows.length;
     if (shouldCluster(id, rows, zoom)) {
@@ -717,6 +797,77 @@ function buildIconLayer(id, data) {
         getLineColor: [...color, 220],
         getLineWidth: 2,
         lineWidthUnits: "pixels",
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "tsunami") {
+      return new deck.IconLayer({
+        id: "tsunami-icons",
+        data,
+        pickable: true,
+        iconAtlas: tsunamiIconAtlas,
+        iconMapping: tsunamiIconMapping,
+        getIcon: () => "tsunami",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 18 + Math.min(14, (d.severity || 1) * 3),
+        // Warnings (severity 5) read hot; watches/advisories/statements stay blue.
+        getColor: (d) => d.severity >= 5 ? [125, 211, 252, 245] : [14, 165, 233, 235],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "volcanoes") {
+      // Reuse the weather atlas's volcano glyph rather than shipping a duplicate.
+      return new deck.IconLayer({
+        id: "volcano-icons",
+        data,
+        pickable: true,
+        iconAtlas: weatherIconAtlas,
+        iconMapping: weatherIconMapping,
+        getIcon: () => "volcano",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 18 + Math.min(12, (d.severity || 1) * 3),
+        getColor: (d) => d.severity >= 4 ? [251, 146, 60, 245] : [234, 88, 12, 230],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "pskreporter") {
+      return new deck.IconLayer({
+        id: "psk-icons",
+        data,
+        pickable: true,
+        iconAtlas: pskIconAtlas,
+        iconMapping: pskIconMapping,
+        getIcon: () => "psk",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: 16,
+        getColor: () => [...(palette.get("pskreporter") || [96, 165, 250]), 225],
+        sizeUnits: "pixels",
+        billboard: true,
+        onClick: ({ object }) => object && showDetail(object)
+      });
+    }
+
+    if (id === "satnogs") {
+      return new deck.IconLayer({
+        id: "satnogs-icons",
+        data,
+        pickable: true,
+        iconAtlas: dishIconAtlas,
+        iconMapping: dishIconMapping,
+        getIcon: () => "dish",
+        getPosition: (d) => [d.lon, d.lat],
+        getSize: (d) => 16 + Math.min(6, (d.severity || 1) * 2),
+        // Online stations (severity 3) read brighter than offline/testing ones.
+        getColor: (d) => d.severity >= 3 ? [94, 234, 212, 240] : [45, 212, 191, 190],
+        sizeUnits: "pixels",
+        billboard: true,
         onClick: ({ object }) => object && showDetail(object)
       });
     }
@@ -1504,12 +1655,17 @@ function pollDueLayers() {
 }
 
 async function hydrateInitialLayers() {
-  await Promise.all([...state.enabled].map((id) => ensureLayer(id)));
+  // Restore enabled imagery (raster) layers onto the map; setImageryLayer waits
+  // for the style to load if it isn't ready yet.
+  for (const id of state.enabled) {
+    if (RASTER_IDS.has(id)) setImageryLayer(layerDefinitions.find((l) => l.id === id), true);
+  }
+  await Promise.all([...state.enabled].filter((id) => !RASTER_IDS.has(id)).map((id) => ensureLayer(id)));
   renderAll();
 }
 
 // Short labels used to tag each recon-history row by its source tool.
-const RECON_TAB_LABELS = { crypto: "Wallet", sanctions: "SDN", intel: "IOC", cyber: "CVE", place: "Place" };
+const RECON_TAB_LABELS = { crypto: "Wallet", sanctions: "SDN", intel: "IOC", cyber: "CVE", econ: "Econ", entity: "Entity", scenes: "Scene", place: "Place" };
 // Maps a history entry's tool back to the function that re-runs the lookup.
 // `place` is the top-bar map search, which has no recon tab (handled below).
 const RECON_TOOLS = {
@@ -1517,6 +1673,9 @@ const RECON_TOOLS = {
   sanctions: { run: runSanctionsSearch },
   intel: { run: runIntelLookup },
   cyber: { run: runCveSearch },
+  econ: { run: runEconLookup },
+  entity: { run: runEntityLookup },
+  scenes: { run: runSceneSearch },
   place: { run: runPlaceSearch }
 };
 
@@ -1703,6 +1862,67 @@ function renderWhois(payload) {
   return `${badge}${rows}${checked}<pre>${escapeHtml(JSON.stringify(payload.rdap, null, 2).slice(0, 1200))}</pre>`;
 }
 
+async function runEconLookup() {
+  const kind = document.querySelector("#econ-kind").value;
+  const q = document.querySelector("#econ-query").value.trim() || (kind === "fx" ? "USD" : "");
+  const result = document.querySelector("#econ-result");
+  if (kind === "country" && !q) return;
+  recordRecon("econ", `${kind === "fx" ? "FX" : "macro"}: ${q}`, { "#econ-kind": kind, "#econ-query": q });
+  result.textContent = kind === "fx" ? "Fetching ECB rates..." : "Fetching World Bank data...";
+  const route = kind === "fx"
+    ? `/api/econ/fx?base=${encodeURIComponent(q || "USD")}`
+    : `/api/econ/country?q=${encodeURIComponent(q)}`;
+  try {
+    const payload = await fetchJson(route);
+    result.innerHTML = kind === "fx" ? econFxBody(payload) : econMacroBody(payload);
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
+async function runSceneSearch() {
+  const q = document.querySelector("#scenes-query").value.trim();
+  const result = document.querySelector("#scenes-result");
+  if (!q) return;
+  recordRecon("scenes", q, { "#scenes-query": q });
+  result.textContent = "Locating...";
+  try {
+    // Reuse the keyless geocoder to turn a place into a point, then search scenes.
+    const geo = await fetchJson(`/api/geocode?q=${encodeURIComponent(q)}`);
+    if (!geo || !Number.isFinite(geo.lat)) {
+      result.textContent = "Location not found.";
+      return;
+    }
+    result.textContent = "Searching Sentinel-2 scenes...";
+    const payload = await fetchJson(`/api/imagery/scenes?lat=${geo.lat}&lon=${geo.lon}`);
+    result.innerHTML = sceneResults(payload, geo);
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
+async function runEntityLookup() {
+  const kind = document.querySelector("#entity-kind").value;
+  const q = document.querySelector("#entity-query").value.trim();
+  const result = document.querySelector("#entity-result");
+  if (!q) return;
+  recordRecon("entity", `${kind}: ${q}`, { "#entity-kind": kind, "#entity-query": q });
+  result.textContent = "Looking up...";
+  const route = {
+    company: `/api/entity/company?q=${encodeURIComponent(q)}`,
+    wikidata: `/api/entity/wikidata?q=${encodeURIComponent(q)}`,
+    gravatar: `/api/entity/gravatar?q=${encodeURIComponent(q)}`,
+    github: `/api/entity/github?q=${encodeURIComponent(q)}`
+  }[kind];
+  const render = { company: entityCompanyBody, wikidata: entityWikidataBody, gravatar: entityGravatarBody, github: entityGithubBody }[kind];
+  try {
+    const payload = await fetchJson(route);
+    result.innerHTML = render(payload);
+  } catch (error) {
+    result.textContent = error.message;
+  }
+}
+
 async function runCveSearch() {
   const q = document.querySelector("#cve-query").value.trim() || "kev";
   const result = document.querySelector("#cve-result");
@@ -1739,6 +1959,30 @@ function wireReconTools() {
   document.querySelector("#sanctions-search").addEventListener("click", runSanctionsSearch);
   document.querySelector("#intel-lookup").addEventListener("click", runIntelLookup);
   document.querySelector("#cve-search").addEventListener("click", runCveSearch);
+  document.querySelector("#econ-lookup").addEventListener("click", runEconLookup);
+  document.querySelector("#entity-lookup").addEventListener("click", runEntityLookup);
+  document.querySelector("#scenes-search").addEventListener("click", runSceneSearch);
+  // Swap the placeholder to match the selected entity kind.
+  document.querySelector("#entity-kind").addEventListener("change", (event) => {
+    document.querySelector("#entity-query").placeholder = {
+      company: "Company name or ticker (e.g. Tesla, AAPL)",
+      wikidata: "Person or org name (e.g. Angela Merkel)",
+      gravatar: "Email address",
+      github: "GitHub username (e.g. torvalds)"
+    }[event.target.value] || "";
+  });
+  // The base-currency vs country-name distinction is easy to miss, so swap the
+  // placeholder and default when the kind changes.
+  document.querySelector("#econ-kind").addEventListener("change", (event) => {
+    const input = document.querySelector("#econ-query");
+    if (event.target.value === "fx") {
+      input.placeholder = "Base currency (USD)";
+      if (!input.value.trim()) input.value = "USD";
+    } else {
+      input.placeholder = "Country name or code (e.g. Japan, JP)";
+      if (input.value.trim().toUpperCase() === "USD") input.value = "";
+    }
+  });
 
   document.querySelector("#clear-recon-history").addEventListener("click", () => {
     store.reconHistory = [];

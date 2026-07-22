@@ -17,6 +17,9 @@ import {
 } from "./src/adapters/intel.js";
 import { btcLookup, cveSearch, ethLookup, icsAdvisories, sanctionsSearch, vulnCheckKev } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
+import { fxRates, countryMacro } from "./src/adapters/economic.js";
+import { secCompany, wikidataEntity, gravatarProfile, githubUser } from "./src/adapters/entity.js";
+import { sceneSearch } from "./src/adapters/imagery.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
 import { getAlerts, getChanges, getDb, getHistory, getSnapshotAt, openDb, persistSnapshot, ruleStats, startRetention } from "./src/lib/persist.js";
 import { currentRules, loadRules } from "./src/lib/alert-rules.js";
@@ -239,6 +242,71 @@ async function handleApi(req, res, url) {
       const q = url.searchParams.get("q");
       if (!q) return sendJson(res, 400, { error: "q required" });
       const data = await withHealth("geocode", "Nominatim", () => geocode(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/econ/fx") {
+      const base = url.searchParams.get("base") || "USD";
+      const data = await withHealth("econ-fx", "Frankfurter (ECB)", () => fxRates(base));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/econ/country") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("econ-country", "World Bank", () => countryMacro(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/entity/company") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("entity-company", "SEC EDGAR", () => secCompany(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/entity/wikidata") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("entity-wikidata", "Wikidata", () => wikidataEntity(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/entity/gravatar") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("entity-gravatar", "Gravatar", () => gravatarProfile(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/entity/github") {
+      const q = url.searchParams.get("q");
+      if (!q) return sendJson(res, 400, { error: "q required" });
+      const data = await withHealth("entity-github", "GitHub", () => githubUser(q));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/imagery/scenes") {
+      const bboxParam = url.searchParams.get("bbox");
+      // Read raw first: Number(null) is 0, so coercing an absent lat/lon would
+      // silently search at [0,0] instead of erroring.
+      const latRaw = url.searchParams.get("lat");
+      const lonRaw = url.searchParams.get("lon");
+      let bbox;
+      if (bboxParam) {
+        bbox = bboxParam.split(",").map(Number);
+        if (bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) {
+          return sendJson(res, 400, { error: "bbox must be minLon,minLat,maxLon,maxLat" });
+        }
+      } else if (latRaw !== null && lonRaw !== null && Number.isFinite(Number(latRaw)) && Number.isFinite(Number(lonRaw))) {
+        const lat = Number(latRaw);
+        const lon = Number(lonRaw);
+        const pad = 0.08; // ~9km box around the point
+        bbox = [lon - pad, lat - pad, lon + pad, lat + pad];
+      } else {
+        return sendJson(res, 400, { error: "bbox or lat/lon required" });
+      }
+      const data = await withHealth("imagery-scenes", "Earth Search STAC", () => sceneSearch(bbox));
       return sendJson(res, 200, data);
     }
 

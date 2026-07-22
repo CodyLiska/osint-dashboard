@@ -21,6 +21,10 @@ import { reliefWebLayer } from "./reliefweb.js";
 import { ransomwareLayer } from "./ransomware.js";
 import { gpsJamLayer } from "./gpsjam.js";
 import { infrastructureLayer } from "./overpass.js";
+import { tsunamiLayer } from "./tsunami.js";
+import { volcanoLayer } from "./gvp.js";
+import { pskReporterLayer } from "./pskreporter.js";
+import { satnogsLayer } from "./satnogs.js";
 
 // Single backend source-of-truth for every server-side layer. Adding a source
 // means adding ONE row here — its adapter dispatch (`load`), its health-panel
@@ -68,6 +72,14 @@ const LAYERS = [
   // Keyless US severe-weather WARNING POLYGONS (rendered as areas, not points).
   // persist:false — the polygon payloads are heavy and alerts are short-lived US-only.
   { id: "nws", sourceName: "NOAA/NWS", load: () => nwsAlertsLayer(), persist: false, geo: "real" },
+  // Keyless NOAA tsunami warning-center Atom feeds (PTWC + NTWC). persist:false —
+  // each feed carries only the latest event's short-lived message thread, so
+  // there is no rolling set to reconcile (same call as nws).
+  { id: "tsunami", sourceName: "NOAA Tsunami Warning System", load: () => tsunamiLayer(), persist: false, geo: "real" },
+  // Keyless Smithsonian/USGS weekly volcanic activity. Low volume (~25) with a
+  // stable per-volcano id → persistable: a newly-reported volcano is a real
+  // "appeared" in What Changed. Weekly cadence, geo:"real" (georss point).
+  { id: "volcanoes", sourceName: "Smithsonian GVP", load: () => volcanoLayer(), persist: true, geo: "real" },
   // Country-level internet outages. Event-shaped (outages start/end), stable
   // country id, sparse/high-signal → persist:true (feeds the what-changed panel).
   { id: "ioda", sourceName: "IODA", load: () => iodaLayer(), persist: true, geo: "country" },
@@ -103,6 +115,12 @@ const LAYERS = [
   // pinned to NOAA Boulder as a symbolic marker. Since a geofence cannot mean
   // one thing for one half of a layer, the whole layer is treated as unsafe.
   { id: "space", sourceName: () => (process.env.N2YO_API_KEY ? "NOAA SWPC, N2YO" : "NOAA SWPC, CelesTrak"), load: () => spaceWeatherLayer(), persist: false, geo: "synthetic" },
+  // Keyless live HF receivers (PSKReporter). persist:false — thousands of stations
+  // that churn every few minutes, like gpsjam. geo:"real" (Maidenhead grid centre).
+  { id: "pskreporter", sourceName: "PSKReporter", load: () => pskReporterLayer(), persist: false, geo: "real" },
+  // Keyless SatNOGS ground-station network. persist:false — a fixed reference set
+  // (stations don't appear/disappear as events), served whole rather than reconciled.
+  { id: "satnogs", sourceName: "SatNOGS Network", load: () => satnogsLayer(), persist: false, geo: "real" },
   { id: "maritime", sourceName: () => (process.env.AISSTREAM_API_KEY ? "AISStream" : "Static port directory"), load: (b) => maritimeLayer(b), persist: false, geo: "real" },
   { id: "crypto", sourceName: "OFAC SDN", load: () => cryptoLayer(), persist: false, geo: "synthetic" },
   { id: "sanctions", sourceName: "Official sanctions feeds", load: () => sanctionsLayer(), persist: false, geo: "synthetic" },

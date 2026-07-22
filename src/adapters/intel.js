@@ -324,12 +324,37 @@ export async function urlScanLookup(domain) {
 
 // Domain intel fan-out (mirrors ipIntel): VirusTotal reputation (keyed), URLhaus
 // malicious-URL hosting (keyed), crt.sh subdomains (keyless), URLScan.io (keyless).
+// OpenPhish community feed: keyless list of ~300 currently-active phishing URLs.
+// feed.txt 302-redirects to the GitHub-hosted raw feed (fetch follows it); we check
+// whether the queried host is the hostname of any active phishing URL.
+export async function openPhishHostLookup(host) {
+  const result = await cachedResilient("openphish:feed", 30 * 60_000, () =>
+    fetchTextRetry("https://openphish.com/feed.txt"));
+  const target = String(host).trim().toLowerCase().replace(/^www\./, "");
+  const matches = [];
+  for (const line of String(result.value).split(/\r?\n/)) {
+    const url = line.trim();
+    if (!url) continue;
+    let hostname;
+    try { hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch { continue; }
+    if (target && (hostname === target || hostname.endsWith(`.${target}`))) matches.push(url);
+    if (matches.length >= 10) break;
+  }
+  return {
+    source: "OpenPhish",
+    ip: host,
+    cached: result.cached,
+    data: { listed: matches.length > 0, matchCount: matches.length, urls: matches }
+  };
+}
+
 export async function domainIntel(domain) {
   const lookups = await Promise.allSettled([
     virusTotalDomainLookup(domain).catch((error) => Promise.reject({ source: "VirusTotal", error })),
     urlhausHostLookup(domain).catch((error) => Promise.reject({ source: "URLhaus", error })),
     crtShLookup(domain).catch((error) => Promise.reject({ source: "crt.sh", error })),
-    urlScanLookup(domain).catch((error) => Promise.reject({ source: "URLScan.io", error }))
+    urlScanLookup(domain).catch((error) => Promise.reject({ source: "URLScan.io", error })),
+    openPhishHostLookup(domain).catch((error) => Promise.reject({ source: "OpenPhish", error }))
   ]);
   return {
     indicator: domain,

@@ -165,16 +165,17 @@ bbox change.
 
 ---
 
-## The tab ceiling (fold into Phase 2)
+## The tab ceiling — RESOLVED 2026-07-21
 
 Measured at 1280: seven tabs at 44-58px each, none clipped **yet**. An eighth
 drops them to ~38px and "Sanctions" begins truncating.
 
-This is the same failure the layer list just hit — fine at 16 items, broken at
-27. Once the pane is an overlay it can be wider (say 520px), which buys room; but
-if the tab count keeps growing the honest fix is a vertical tab rail or grouped
-tabs, the same move as the layer groups. Decide when an eighth tab is actually
-needed, not before.
+**Fixed when the Econ + Entity tabs (8th, 9th) landed:** `.tabs` moved from
+`grid-template-columns: repeat(7, 1fr)` to `repeat(auto-fill, minmax(62px, 1fr))`,
+so the bar now **wraps to a second row** (~5 per row) instead of clipping. No
+overlay widening or vertical rail needed; the ceiling is gone for future tabs
+too. The pane can still be widened via `--recon-width` if a single-row look is
+ever wanted back.
 
 ## Testing
 

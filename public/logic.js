@@ -24,7 +24,7 @@ export function boundsKey(south, west, north, east) {
 // Dense layers that collapse into count badges when zoomed out. A layer only
 // clusters once it has at least CLUSTER_MIN_POINTS visible entities and the map
 // is below CLUSTER_MAX_ZOOM; past that zoom every point renders individually.
-export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt", "gdacs", "ucdp", "power-plants", "infrastructure"]);
+export const CLUSTER_LAYERS = new Set(["aviation", "military-air", "fires", "seismic", "news", "telegram", "maritime", "ports", "gdelt", "gdacs", "ucdp", "power-plants", "infrastructure", "pskreporter", "satnogs"]);
 export const CLUSTER_MIN_POINTS = 15;
 export const CLUSTER_MAX_ZOOM = 5;
 
@@ -185,6 +185,84 @@ export function extLink(url, label) {
   return `<a class="result-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)} ↗</a>`;
 }
 
+// --- NASA GIBS imagery tiles (raster layers) -------------------------------
+
+// WMTS REST tile template for a MapLibre raster source. MapLibre fills {z}/{y}/{x};
+// GIBS orders the path row-before-col (z/y/x). A `gibs.date` pins a fixed-date
+// product (e.g. Black Marble); otherwise the supplied daily `date` is used.
+export function gibsTileUrl(gibs, date) {
+  const day = gibs.date || date;
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${gibs.layer}/default/${day}/${gibs.matrix}/{z}/{y}/{x}.${gibs.ext}`;
+}
+
+// Daily GIBS imagery lags by processing latency and the UTC day boundary, so
+// default to yesterday (UTC) rather than today to avoid a not-yet-published day.
+export function yesterdayUTC(now = Date.now()) {
+  return new Date(now - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// Sentinel-2 scene-search results as a thumbnail grid (Scenes recon tab).
+export function sceneResults(payload, place) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  const scenes = payload?.scenes || [];
+  if (!scenes.length) return `<div class="badge warn">No recent low-cloud Sentinel-2 scenes for ${escapeHtml(place?.name || "this location")}.</div>`;
+  const head = `<div class="badge ok">${escapeHtml(place?.name || "Location")} — newest ${scenes.length} of ${escapeHtml(String(payload.matched ?? scenes.length))}</div>`;
+  const cards = scenes.map((s) => `
+    <a class="scene-card" href="${escapeHtml(s.thumbnail)}" target="_blank" rel="noreferrer">
+      <img loading="lazy" src="${escapeHtml(s.thumbnail)}" alt="${escapeHtml(s.id)}">
+      <span class="scene-meta"><strong>${escapeHtml(s.datetime ? s.datetime.slice(0, 10) : "—")}</strong><span>${s.cloud == null ? "" : `${escapeHtml(String(s.cloud))}% cloud · `}${escapeHtml(s.platform)}</span></span>
+    </a>`).join("");
+  return `<div class="econ-body">${head}<div class="scene-grid">${cards}</div><p class="result-note">Source: ${escapeHtml(payload.source || "Earth Search")}</p></div>`;
+}
+
+// World Bank indicator value → a compact, human-readable string. `kind` comes
+// from the adapter (usd / int / pct) so formatting never has to guess.
+export function formatMacroValue(value, kind) {
+  if (value == null || value === "") return "—"; // Number(null)/Number("") are 0, not NaN
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  if (kind === "pct") return `${n.toFixed(2)}%`;
+  if (kind === "int") return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (kind === "usd") {
+    const abs = Math.abs(n);
+    if (abs >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+    if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    return `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  }
+  return String(value);
+}
+
+// Major currencies to surface first in an FX result (only those actually present
+// are shown); the rest follow, capped, so the box isn't a wall of 30 rows.
+export const FX_HIGHLIGHT = ["EUR", "GBP", "JPY", "CNY", "CHF", "CAD", "AUD", "INR", "RUB", "BRL", "ZAR", "MXN"];
+
+export function econFxBody(payload) {
+  const rates = payload?.rates || {};
+  const base = payload?.base || "USD";
+  const codes = Object.keys(rates);
+  if (!codes.length) return `<div class="badge warn">No FX rates available.</div>`;
+  const ordered = [...FX_HIGHLIGHT.filter((c) => c in rates), ...codes.filter((c) => !FX_HIGHLIGHT.includes(c))];
+  const head = `<div class="badge ok">1 ${escapeHtml(base)}${payload?.date ? ` · ${escapeHtml(payload.date)}` : ""}</div>`;
+  const rows = ordered.slice(0, 16).map((code) => kvRow(code, String(rates[code]))).join("");
+  const note = `<p class="result-note">Source: ${escapeHtml(payload?.source || "Frankfurter")}</p>`;
+  return `<div class="econ-body">${head}${rows}${note}</div>`;
+}
+
+export function econMacroBody(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  const country = payload?.country;
+  const head = country
+    ? `<div class="badge ok">${escapeHtml(country.name)} (${escapeHtml(country.iso3 || country.code)})</div>`
+    : "";
+  const rows = (payload?.indicators || [])
+    .map((i) => kvRow(`${i.label}${i.date ? ` · ${i.date}` : ""}`, formatMacroValue(i.value, i.kind)))
+    .join("");
+  if (!rows) return `<div class="badge warn">No indicators returned.</div>`;
+  const note = `<p class="result-note">Source: ${escapeHtml(payload?.source || "World Bank")}</p>`;
+  return `<div class="econ-body">${head}${rows}${note}</div>`;
+}
+
 // Build the collapsible detail body for a sanctions search hit from its
 // OpenSanctions/OFAC properties (country, programs, aliases, UID, notes).
 export function sanctionDetail(row) {
@@ -201,6 +279,71 @@ export function sanctionDetail(row) {
   add("Notes", props.notes);
   add("Source", row.datasets);
   return parts.join("") || `<div class="kv"><span>Detail</span><span>No further detail available.</span></div>`;
+}
+
+// --- Person / entity OSINT render bodies (Entity tab) ----------------------
+
+export function entityCompanyBody(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  const c = payload?.company || {};
+  const head = `<div class="badge ok">${escapeHtml(c.name || "Company")}${c.ticker ? ` · ${escapeHtml(c.ticker)}` : ""}</div>`;
+  const meta = [
+    kvRow("CIK", c.cik),
+    kvRow("Industry (SIC)", c.sic),
+    kvRow("Location", c.location),
+    kvRow("Exchanges", c.exchanges)
+  ].join("");
+  const filings = (payload?.filings || []).length
+    ? `<p class="result-note">Recent filings</p>` + payload.filings.map((f) =>
+      `<div class="kv"><span>${escapeHtml(f.form || "—")} · ${escapeHtml(f.date || "")}</span><span>${extLink(f.url, "Open on EDGAR")}</span></div>`).join("")
+    : "";
+  return `<div class="econ-body">${head}${meta}${filings}<p class="result-note">Source: ${escapeHtml(payload?.source || "SEC EDGAR")}</p></div>`;
+}
+
+export function entityWikidataBody(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  const rows = (payload?.matches || []).map((m) =>
+    `<div class="kv"><span>${extLink(m.url, m.label)} <em>(${escapeHtml(m.id)})</em></span><span>${escapeHtml(m.description || "")}</span></div>`).join("");
+  if (!rows) return `<div class="badge warn">No matches.</div>`;
+  return `<div class="econ-body"><div class="badge ok">${payload.matches.length} entity match${payload.matches.length === 1 ? "" : "es"}</div>${rows}<p class="result-note">Source: Wikidata</p></div>`;
+}
+
+export function entityGravatarBody(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  if (!payload?.found) return `<div class="badge warn">${escapeHtml(payload?.message || "No public Gravatar profile.")}</div>`;
+  const p = payload.profile || {};
+  const head = `<div class="badge ok">${escapeHtml(p.displayName || "Profile")}${p.pronouns ? ` · ${escapeHtml(p.pronouns)}` : ""}</div>`;
+  const meta = [
+    kvRow("Location", p.location),
+    kvRow("Role", [p.jobTitle, p.company].filter(Boolean).join(" @ ")),
+    kvRow("About", p.aboutMe)
+  ].join("");
+  const links = [
+    p.profileUrl ? `<div class="kv"><span>Gravatar</span><span>${extLink(p.profileUrl, "View profile")}</span></div>` : "",
+    ...(p.accounts || []).map((a) => `<div class="kv"><span>${escapeHtml(a.label || "Account")}</span><span>${extLink(a.url, "Open")}</span></div>`)
+  ].join("");
+  return `<div class="econ-body">${head}${meta}${links}<p class="result-note">Source: Gravatar</p></div>`;
+}
+
+export function entityGithubBody(payload) {
+  if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;
+  if (!payload?.found) return `<div class="badge warn">${escapeHtml(payload?.message || "No public GitHub user.")}</div>`;
+  const p = payload.profile || {};
+  const head = `<div class="badge ok">${extLink(p.htmlUrl, p.name ? `${p.name} (@${p.login})` : `@${p.login}`)}</div>`;
+  const meta = [
+    kvRow("Bio", p.bio),
+    kvRow("Company", p.company),
+    kvRow("Location", p.location),
+    kvRow("Public email", p.email),
+    kvRow("Blog", p.blog),
+    kvRow("Repos / Followers", `${p.publicRepos ?? "—"} / ${p.followers ?? "—"}`),
+    kvRow("Joined", p.created ? String(p.created).slice(0, 10) : null)
+  ].join("");
+  const repos = (payload.repos || []).length
+    ? `<p class="result-note">Recently pushed repos</p>` + payload.repos.map((r) =>
+      `<div class="kv"><span>${extLink(r.url, r.name)}${r.language ? ` <em>${escapeHtml(r.language)}</em>` : ""}</span><span>★ ${escapeHtml(String(r.stars ?? 0))}</span></div>`).join("")
+    : "";
+  return `<div class="econ-body">${head}${meta}${repos}<p class="result-note">Source: GitHub</p></div>`;
 }
 
 // External reputation portals to pivot an IOC into, keyed by indicator kind.
@@ -377,6 +520,14 @@ const INTEL_RENDERERS = {
     return {
       state: d.torExit ? "flagged" : "clean",
       facts: [["Verdict", d.torExit ? "Tor exit node — traffic origin is anonymized" : "Not a Tor exit node"]]
+    };
+  },
+  "OpenPhish"(d) {
+    return {
+      state: d.listed ? "flagged" : "clean",
+      facts: d.listed
+        ? [["Verdict", `Host of ${d.matchCount} active phishing URL(s)`], ["Most recent", (d.urls || [])[0]]]
+        : [["Verdict", "Not in the active OpenPhish feed"]]
     };
   },
   "Spamhaus DROP"(d) {

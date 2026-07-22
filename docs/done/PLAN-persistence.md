@@ -1,6 +1,6 @@
 # Implementation Plan — Historical Persistence
 
-> Status: **PROPOSED** (not started). Draft 2026-07-19.
+> Status: **DONE** (Phases 1-5; Phase 5 timeline scrubber 2026-07-21). Moved to `docs/done/`. Draft 2026-07-19.
 > Source idea: `docs/FUTURE-DATA-SOURCES.md` → "Cross-cutting enhancements" → historical persistence.
 > Precedent: sibling project `public-risk-radar` (Postgres `risk_events`, EONET persistence, fire-and-forget after response). Same lineage, decided the opposite way at deploy time — see decisions-log #24 (OSIRIS chose in-memory-only as a shipping simplicity) and #26/#34 (risk-radar's persistence patterns).
 

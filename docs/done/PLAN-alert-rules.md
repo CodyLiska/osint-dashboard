@@ -1,6 +1,6 @@
 # Implementation Plan — Geofence + Keyword Alert Rules
 
-Status: **proposed**, not started. Log a `decisions-log.md` entry on execution.
+Status: **DONE** (Phases 1-4, 2026-07-20; shipped and deployed to the homelab). Moved to `docs/done/`. See `docs/DEPLOY.md` and the decisions log for the as-built engine.
 
 ## Goal
 

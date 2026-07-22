@@ -12,7 +12,7 @@ test("layerDefinitions have unique ids and valid rgb colors", () => {
     assert.ok(layer.label, `${layer.id} has a label`);
     assert.equal(layer.color.length, 3, `${layer.id} color is rgb`);
     assert.ok(layer.color.every((c) => c >= 0 && c <= 255), `${layer.id} color channels in range`);
-    assert.ok(layer.live || layer.staticKey, `${layer.id} is either live or static`);
+    assert.ok(layer.live || layer.staticKey || layer.raster, `${layer.id} is live, static, or raster`);
   }
 });
 

@@ -23,12 +23,14 @@ export async function loadStaticLayers() {
 // navigable as the source catalogue grows.
 export const LAYER_GROUPS = [
   { id: "air", label: "Air & Space" },
+  { id: "signals", label: "Signals & Radio" },
   { id: "maritime", label: "Maritime" },
   { id: "hazards", label: "Hazards" },
   { id: "conflict", label: "Conflict & Political" },
   { id: "feeds", label: "Open-Source Feeds" },
   { id: "cyber", label: "Cyber & Internet" },
-  { id: "infra", label: "Infrastructure" }
+  { id: "infra", label: "Infrastructure" },
+  { id: "imagery", label: "Imagery" }
 ];
 
 export const layerDefinitions = [
@@ -44,6 +46,8 @@ export const layerDefinitions = [
   { id: "gdacs", label: "GDACS Disasters", color: [249, 115, 22], live: true, group: "hazards" },
   { id: "ucdp", label: "Conflict (UCDP)", color: [190, 18, 60], live: true, group: "conflict" },
   { id: "nws", label: "NWS Alerts (US)", color: [124, 58, 237], live: true, group: "hazards" },
+  { id: "tsunami", label: "Tsunami Warnings", color: [14, 165, 233], live: true, group: "hazards" },
+  { id: "volcanoes", label: "Volcanic Activity", color: [234, 88, 12], live: true, group: "hazards" },
   { id: "ioda", label: "Internet Outages", color: [219, 39, 119], live: true, group: "cyber" },
   { id: "advisories", label: "Travel Advisories", color: [217, 119, 6], live: true, group: "conflict" },
   { id: "reliefweb", label: "Humanitarian (ReliefWeb)", color: [56, 189, 248], live: true, group: "conflict" },
@@ -54,11 +58,23 @@ export const layerDefinitions = [
   { id: "cyber", label: "Cyber CVE", color: [34, 197, 94], live: true, group: "cyber" },
   { id: "ransomware", label: "Ransomware Victims", color: [190, 24, 93], live: true, group: "cyber" },
   { id: "gpsjam", label: "GPS Interference", color: [250, 204, 21], live: true, group: "air" },
+  { id: "pskreporter", label: "HF Activity (PSKReporter)", color: [96, 165, 250], live: true, group: "signals" },
+  { id: "satnogs", label: "Ground Stations (SatNOGS)", color: [45, 212, 191], live: true, group: "signals" },
   { id: "conflict", label: "Conflict Zones", color: [244, 63, 94], staticKey: "conflict", group: "conflict" },
   { id: "telegram", label: "Telegram OSINT", color: [34, 211, 238], live: true, group: "feeds" },
   { id: "crypto", label: "Crypto Intel", color: [234, 179, 8], live: true, group: "cyber" },
   { id: "sanctions", label: "Sanctions Intel", color: [220, 38, 38], live: true, group: "cyber" },
   { id: "maritime", label: "Maritime Intel", color: [45, 212, 191], live: true, group: "maritime" },
   { id: "military", label: "Military Bases", color: [148, 163, 184], staticKey: "military", group: "infra" },
-  { id: "military-air", label: "Military Aircraft", color: [245, 158, 11], live: true, group: "air" }
+  { id: "military-air", label: "Military Aircraft", color: [245, 158, 11], live: true, group: "air" },
+  // NASA GIBS raster imagery. Not entity layers — `raster` routes the toggle to a
+  // MapLibre raster source (see setImageryLayer in app.js) instead of an adapter
+  // fetch. `gibs` carries the WMTS layer id, tile-matrix set, extension, max zoom,
+  // and an optional fixed `date` (daily layers default to yesterday UTC).
+  { id: "gibs-modis-truecolor", label: "MODIS True Color", color: [96, 165, 250], raster: true, group: "imagery",
+    gibs: { layer: "MODIS_Terra_CorrectedReflectance_TrueColor", matrix: "GoogleMapsCompatible_Level9", ext: "jpg", maxZoom: 9 } },
+  { id: "gibs-viirs-truecolor", label: "VIIRS True Color", color: [125, 211, 252], raster: true, group: "imagery",
+    gibs: { layer: "VIIRS_SNPP_CorrectedReflectance_TrueColor", matrix: "GoogleMapsCompatible_Level9", ext: "jpg", maxZoom: 9 } },
+  { id: "gibs-black-marble", label: "Night Lights (Black Marble)", color: [250, 204, 21], raster: true, group: "imagery",
+    gibs: { layer: "VIIRS_Black_Marble", matrix: "GoogleMapsCompatible_Level8", ext: "png", maxZoom: 8, date: "2016-01-01" } }
 ];
