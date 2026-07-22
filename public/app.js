@@ -4,7 +4,7 @@ import {
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
   attackTags, correlationBanner, scrubberTime, replayEntities, boundsKey, CLUSTER_MAX_ZOOM,
   econFxBody, econMacroBody, entityCompanyBody, entityWikidataBody, entityGravatarBody, entityGithubBody,
-  gibsTileUrl, yesterdayUTC, sceneResults, socialResults
+  gibsTileUrl, yesterdayUTC, todayUTC, sceneResults, socialResults
 } from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
@@ -398,6 +398,8 @@ const menuIcons = {
   "submarine-cables": `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="12" cy="32" r="7"/><circle cx="52" cy="32" r="7"/><path d="M12 29h40v6H12z"/></svg>`,
   "gibs-modis-truecolor": imageryMenuIcon,
   "gibs-viirs-truecolor": imageryMenuIcon,
+  "gibs-goes-east": imageryMenuIcon,
+  "gibs-goes-west": imageryMenuIcon,
   "gibs-black-marble": `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M40 12a20 20 0 1 0 12 36 16 16 0 0 1-12-36Z"/><circle cx="20" cy="20" r="2.5"/><circle cx="14" cy="30" r="2"/><circle cx="24" cy="34" r="2"/></svg>`,
   aviation: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M33.8 4.8c-1-1.9-2.6-1.9-3.6 0-1 1.8-1.4 7.1-1.4 12.2v8.2L7.1 36.8c-1.6.9-2.7 2.6-2.7 4.5v3.1l24.4-7.6v9.7l-7.3 5.6v2.9l9.3-2.8 9.3 2.8v-2.9l-7.3-5.6v-9.7l24.4 7.6v-3.1c0-1.9-1-3.6-2.7-4.5L32.8 25.2V17c0-5.1-.1-10.4 1-12.2Z"/></svg>`,
   ports: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M29 23h6v25c7.3-1.1 12-5.4 14.3-12.9l-6.6 1.9-1.7-5.8 15.6-4.5L61 42.4l-5.8 1.7-1.7-5.8C49.8 48.5 42.6 54 32 54S14.2 48.5 10.5 38.3l-1.7 5.8L3 42.4l4.4-15.7L23 31.2 21.3 37l-6.6-1.9C17 42.6 21.7 46.9 29 48V23Z"/></svg>`,
@@ -471,7 +473,7 @@ function setImageryLayer(def, on) {
     if (!map.getSource(id)) {
       map.addSource(id, {
         type: "raster",
-        tiles: [gibsTileUrl(def.gibs, yesterdayUTC())],
+        tiles: [gibsTileUrl(def.gibs, def.gibs.today ? todayUTC() : yesterdayUTC())],
         tileSize: 256,
         maxzoom: def.gibs.maxZoom,
         attribution: "NASA GIBS / EOSDIS"

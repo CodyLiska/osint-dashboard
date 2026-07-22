@@ -201,6 +201,12 @@ export function yesterdayUTC(now = Date.now()) {
   return new Date(now - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+// Near-real-time GIBS layers (e.g. GOES geostationary) publish continuously, so
+// they want today (UTC) — yesterday would show stale imagery.
+export function todayUTC(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
 // Mastodon hashtag results as a compact post feed (Social recon tab).
 export function socialResults(payload) {
   if (payload?.error) return `<div class="badge warn">${escapeHtml(payload.error)}</div>`;

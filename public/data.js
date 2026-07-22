@@ -77,5 +77,13 @@ export const layerDefinitions = [
   { id: "gibs-viirs-truecolor", label: "VIIRS True Color", color: [125, 211, 252], raster: true, group: "imagery",
     gibs: { layer: "VIIRS_SNPP_CorrectedReflectance_TrueColor", matrix: "GoogleMapsCompatible_Level9", ext: "jpg", maxZoom: 9 } },
   { id: "gibs-black-marble", label: "Night Lights (Black Marble)", color: [250, 204, 21], raster: true, group: "imagery",
-    gibs: { layer: "VIIRS_Black_Marble", matrix: "GoogleMapsCompatible_Level8", ext: "png", maxZoom: 8, date: "2016-01-01" } }
+    gibs: { layer: "VIIRS_Black_Marble", matrix: "GoogleMapsCompatible_Level8", ext: "png", maxZoom: 8, date: "2016-01-01" } },
+  // GOES geostationary near-real-time (GeoColor = true-color day / IR-blend night).
+  // `today: true` → today-UTC, not the daily-layer yesterday default. GOES-East
+  // covers the Americas + Atlantic; GOES-West the Pacific. Disk edges are nodata
+  // (404 tiles, which MapLibre skips) — normal for a single geostationary sensor.
+  { id: "gibs-goes-east", label: "GOES-East (live)", color: [125, 211, 252], raster: true, group: "imagery",
+    gibs: { layer: "GOES-East_ABI_GeoColor", matrix: "GoogleMapsCompatible_Level7", ext: "png", maxZoom: 7, today: true } },
+  { id: "gibs-goes-west", label: "GOES-West (live)", color: [96, 165, 250], raster: true, group: "imagery",
+    gibs: { layer: "GOES-West_ABI_GeoColor", matrix: "GoogleMapsCompatible_Level7", ext: "png", maxZoom: 7, today: true } }
 ];

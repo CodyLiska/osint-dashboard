@@ -62,15 +62,21 @@ Skill-ready — same pattern as the 10 working keyed sources. Sequence: **Cody r
   - GEM (§12) — NOT a keyed API (dataset download/request); re-probe before treating as Group C
   - HIBP (§5) — paid, skip
 
-## D — Imagery tiling epic  ·  P2 (its own project — one design decision gates it)
+## D — Imagery tiling epic  ·  mostly DONE; COG part PARKED (decided 2026-07-22)
 
-Stand up COG tiling (titiler sidecar **or** client-side deck.gl `TileLayer`/geotiff).
-Unlocks as a cluster:
+**Probing collapsed this epic.** GIBS serves GOES pre-tiled, so geostationary near-real-time
+was a raster add, not COG tiling. Combined with the earlier "Scenes" thumbnails, the core
+imagery value is delivered without breaking the zero-dep / single-container rule.
 
-- [ ] Stream Sentinel-2 `visual` COGs into a live map layer (the "Scenes" full-res follow-on)
-- [ ] NOAA GOES / Himawari (§14, keyless) — geostationary near-real-time
-- [ ] Umbra / Maxar Open Data / OpenAerialMap (§14, keyless) — full-res SAR/optical
-- [ ] Keyed imagery rides along once tiling + keys exist: Copernicus, Landsat, Planet NICFI (§14)
+- [x] **NOAA GOES** (§14) — DONE. `gibs-goes-east` + `gibs-goes-west` GeoColor raster layers
+      (GIBS WMTS, `today: true` near-real-time date mode). No tiling needed. Band13 IR / Dust /
+      FireTemp are one-row follow-ons if wanted.
+- [x] *(earlier)* "Scenes" tab — recent Sentinel-2 10m thumbnails per location (no tiler).
+- [~] **PARKED — full-res COG-on-map** (decided *defer* 2026-07-22): overlaying full-res
+      Sentinel-2 `visual` / Umbra / Maxar / Landsat / Copernicus **as live map layers** needs COG
+      tiling (titiler sidecar = 2nd container, or client-side geotiff.js = heavy browser lib) —
+      both break a core rule for ~20% more value over the thumbnails. **Trigger to revisit:** a
+      real need to overlay/zoom full-res imagery on the map in context with other layers.
 
 ## E — Layout polish  ·  opportunistic (non-blocking)
 
