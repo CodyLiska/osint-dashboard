@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   escapeHtml, clusterPoints, shouldCluster, filterBySeverity, advancePosition,
   byPriority, buildFeed, detailRows, snapshotEntity, kvRow, extLink,
-  sanctionDetail, intelLinks, cveDetail, relativeTime, ruleHealth, boundsKey
+  sanctionDetail, intelLinks, cveDetail, relativeTime, ruleHealth, boundsKey, attackTags,
+  scrubberTime, replayEntities
 } from "../public/logic.js";
 
 test("escapeHtml neutralizes every HTML metacharacter", () => {
@@ -160,6 +161,42 @@ test("detailRows surfaces GDELT event fields", () => {
   assert.equal(map["Coverage"], "12 articles");
   assert.equal(map["Tone"], "-6.3");
   assert.equal(map["Source"], "GDELT");
+});
+
+test("attackTags renders deep-linked technique tags, empty when none", () => {
+  assert.equal(attackTags({}), "");
+  assert.equal(attackTags({ techniques: [] }), "");
+  const html = attackTags({ techniques: [{ id: "T1190", name: "Exploit Public-Facing Application", tactic: "Initial Access", url: "https://attack.mitre.org/techniques/T1190/" }] });
+  assert.match(html, /T1190 · Exploit Public-Facing Application/);
+  assert.match(html, /attack\.mitre\.org\/techniques\/T1190\//);
+  assert.match(html, /from CWE/);
+});
+
+test("detailRows surfaces CWE weakness ids when present", () => {
+  const rows = detailRows({ cwes: ["CWE-89", "CWE-78"] });
+  assert.deepEqual(rows.find(([label]) => label === "Weakness"), ["Weakness", "CWE-89, CWE-78"]);
+});
+
+test("scrubberTime maps the slider to a past instant and treats the far right as live", () => {
+  const start = Date.parse("2026-07-19T00:00:00.000Z");
+  const end = Date.parse("2026-07-20T00:00:00.000Z"); // 24h window
+  assert.deepEqual(scrubberTime(1000, 1000, start, end), { live: true, ms: end, iso: "2026-07-20T00:00:00.000Z" });
+  const mid = scrubberTime(500, 1000, start, end); // halfway → 12:00
+  assert.equal(mid.live, false);
+  assert.equal(mid.iso, "2026-07-19T12:00:00.000Z");
+  assert.equal(scrubberTime(0, 1000, start, end).iso, "2026-07-19T00:00:00.000Z");
+  // out-of-range values clamp rather than extrapolate
+  assert.equal(scrubberTime(-5, 1000, start, end).iso, "2026-07-19T00:00:00.000Z");
+  assert.equal(scrubberTime(9999, 1000, start, end).live, true);
+});
+
+test("replayEntities merges enabled snapshots and drops unplaceable entities", () => {
+  const merged = replayEntities([
+    { enabled: true, entities: [{ id: "q1", layer: "seismic", lat: 1, lon: 2 }, { id: "q2", layer: "seismic", lat: null, lon: 2 }] },
+    { enabled: true, entities: [{ id: "c1", layer: "cyber", lat: 5, lon: 6 }] },
+    { enabled: false, entities: [{ id: "x", lat: 9, lon: 9 }] } // disabled → ignored
+  ]);
+  assert.deepEqual(merged.map((e) => e.id), ["q1", "c1"]);
 });
 
 test("relativeTime buckets an elapsed timestamp into minutes/hours/days", () => {

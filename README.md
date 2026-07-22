@@ -73,8 +73,5 @@ Completed (2026-07-17):
 4. Done: persist layer visibility, map viewport, and recon history in localStorage.
 5. Done: WHOIS/IP intelligence route via keyless RDAP (`/api/intel/whois`) with OpenSanctions name cross-checks.
 6. Done: large static datasets moved to versioned JSON with provenance (`public/data/*.json`).
+7. Done: authenticated higher-quota adapters. Sources are key-aware but never key-required — supplying a key raises quota/quality, its absence keeps the keyless path. Examples: OpenSky OAuth (authenticated state vectors), NVD `NVD_API_KEY` (higher NVD rate), and URLScan.io `URLSCAN_API_KEY` (API-Key header → higher rate limit + larger result window). Adding another follows the same pattern: read the key, send it when present, widen the request, leave behavior unchanged when absent.
 8. Done: exportable incident snapshots (JSON) for analyst reports (Export button).
-
-Remaining:
-
-7. Add authenticated adapters for additional sources that allow higher quotas.

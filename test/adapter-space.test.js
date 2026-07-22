@@ -72,3 +72,38 @@ test("without an N2YO key, satellites come from CelesTrak elements (keyless, app
     if (saved === undefined) delete process.env.N2YO_API_KEY; else process.env.N2YO_API_KEY = saved;
   }
 });
+
+test("with an N2YO key, satellites come from the N2YO position API (precise) and a plain alert scores the base severity", async () => {
+  const savedKey = process.env.N2YO_API_KEY;
+  const savedIds = process.env.N2YO_SATELLITE_IDS;
+  process.env.N2YO_API_KEY = "test-key";
+  process.env.N2YO_SATELLITE_IDS = "25544"; // one satellite keeps the mock simple
+  const restore = installJsonFetch((url) => {
+    if (url.includes("alerts.json")) return [{ product_id: "SUMMARY", issue_datetime: "2026-06-01T12:00:00", message: "Nothing notable to report today." }];
+    if (url.includes("noaa-planetary-k-index.json")) return [{ time_tag: "2026-06-01T12:00:00", Kp: "2.00", station_count: 8 }];
+    if (url.includes("api.n2yo.com")) {
+      return { info: { satid: 25544, satname: "SPACE STATION" }, positions: [{ satlatitude: 12.5, satlongitude: 45.6, sataltitude: 420.3, timestamp: 1782000000 }] };
+    }
+    return {};
+  });
+  try {
+    const { entities, meta } = await spaceWeatherLayer();
+    const sat = entities.find((e) => e.type === "Satellite position");
+    assert.ok(sat, "an N2YO satellite entity is produced");
+    assert.equal(sat.source, "N2YO");
+    assert.equal(sat.name, "SPACE STATION");
+    assert.equal(sat.lat, 12.5);
+    assert.equal(sat.lon, 45.6);
+    assert.ok(Math.abs(sat.altitudeKm - 420.3) < 0.01);
+    assert.equal(meta.source, "NOAA SWPC, N2YO");
+    assert.equal(meta.satellites.configured, true);
+    assert.equal(meta.satellites.approximate, undefined); // precise path, not CelesTrak
+    // a plain SWPC message (no G/S/R code, no WARNING/WATCH) scores the base 2
+    const plain = entities.find((e) => e.name === "SUMMARY");
+    assert.equal(plain.severity, 2);
+  } finally {
+    restore();
+    if (savedKey === undefined) delete process.env.N2YO_API_KEY; else process.env.N2YO_API_KEY = savedKey;
+    if (savedIds === undefined) delete process.env.N2YO_SATELLITE_IDS; else process.env.N2YO_SATELLITE_IDS = savedIds;
+  }
+});

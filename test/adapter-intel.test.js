@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installFetch } from "./helpers/mock-fetch.js";
-import { crtShLookup, domainIntel, feodoLookup, ipIntel, malwareBazaarLookup, ripeStatLookup, sanctionsCrossCheck, shodanInternetDb, spamhausDropLookup, threatFoxLookup, torExitLookup, urlhausHostLookup, urlScanLookup, whoisLookup } from "../src/adapters/intel.js";
+import { correlate, crtShLookup, domainIntel, feodoLookup, ipIntel, malwareBazaarLookup, ripeStatLookup, sanctionsCrossCheck, shodanInternetDb, spamhausDropLookup, threatFoxLookup, torExitLookup, urlhausHostLookup, urlScanLookup, whoisLookup } from "../src/adapters/intel.js";
 import { clearCache } from "../src/lib/cache.js";
 
 const SDN_URL = "treasury.gov/ofac/downloads/sdn.xml";
@@ -489,5 +489,97 @@ test("urlScanLookup summarizes recent scans of a domain", async () => {
     assert.equal(res.data.recent[0].country, "RU");
   } finally {
     restore();
+  }
+});
+
+test("correlate joins reputation, network, geo, and sanctions for one IP", async () => {
+  clearCache();
+  const rdap = {
+    handle: "NET-45-66-77-0",
+    name: "EVIL CORP",
+    startAddress: "45.66.77.0",
+    endAddress: "45.66.77.255",
+    ipVersion: "v4",
+    country: "RU",
+    events: [],
+    entities: [{ roles: ["registrant"], vcardArray: vcard([["fn", "EVIL CORP"], ["org", "EVIL CORP"]]) }]
+  };
+  const restore = installFetch((url) => {
+    if (url.includes("rdap.org")) return rdap;
+    if (url.includes(SDN_URL)) return evilCorpSdn;
+    if (url.includes("network-info")) return { data: { asns: ["48666"], prefix: "45.66.77.0/24" } };
+    if (url.includes("as-overview")) return { data: { holder: "EVIL-HOSTING" } };
+    return "";
+  });
+  try {
+    const res = await correlate("45.66.77.88");
+    assert.equal(res.type, "ip");
+    // geo: RDAP ISO2 country maps onto the bundled centroid table (no geocoding).
+    assert.equal(res.geo.country, "RU");
+    assert.ok(Number.isFinite(res.geo.lat) && Number.isFinite(res.geo.lon), "country centroid resolved");
+    // network: the announcing AS from RIPEstat.
+    assert.equal(res.network.asn, "48666");
+    assert.equal(res.network.holder, "EVIL-HOSTING");
+    assert.equal(res.network.prefix, "45.66.77.0/24");
+    // sanctions: the RDAP registrant crossed against the SDN list.
+    assert.equal(res.sanctions.sanctioned, true);
+    // the per-source results are passed through for the existing cards.
+    assert.ok(Array.isArray(res.results) && res.results.length >= 10);
+  } finally {
+    restore();
+    clearCache();
+  }
+});
+
+test("correlate survives a WHOIS failure and still returns intel results", async () => {
+  clearCache();
+  const restore = installFetch((url) => {
+    if (url.includes("rdap.org")) throw new Error("rdap down");
+    if (url.includes("network-info")) return { data: { asns: ["13335"], prefix: "1.1.1.0/24" } };
+    if (url.includes("as-overview")) return { data: { holder: "CLOUDFLARENET" } };
+    return "";
+  });
+  try {
+    const res = await correlate("1.1.1.1");
+    assert.equal(res.sanctions, null);        // whois failed → no sanctions block
+    assert.equal(res.network.holder, "CLOUDFLARENET"); // network still resolves via RIPEstat
+    assert.ok(Array.isArray(res.results) && res.results.length >= 10);
+  } finally {
+    restore();
+    clearCache();
+  }
+});
+
+test("urlScanLookup is keyless by default and sends the API-Key header (larger window) when URLSCAN_API_KEY is set", async () => {
+  const prev = process.env.URLSCAN_API_KEY;
+  let seen = {};
+
+  // Keyless: no API-Key header, anonymous-tier window.
+  delete process.env.URLSCAN_API_KEY;
+  let restore = installFetch((url, opts) => {
+    seen = { url, headers: opts?.headers || {} };
+    return { total: 1, results: [{ page: { url: "http://x", ip: "1.2.3.4", country: "US" }, task: { time: "t" } }] };
+  });
+  try {
+    const res = await urlScanLookup("example.com");
+    assert.equal(res.authenticated, false);
+    assert.equal(seen.headers["API-Key"], undefined);
+    assert.match(seen.url, /size=20\b/);
+  } finally { restore(); }
+
+  // Keyed: API-Key header sent, higher-quota larger window.
+  process.env.URLSCAN_API_KEY = "test-key";
+  restore = installFetch((url, opts) => {
+    seen = { url, headers: opts?.headers || {} };
+    return { total: 1, results: [] };
+  });
+  try {
+    const res = await urlScanLookup("example.com");
+    assert.equal(res.authenticated, true);
+    assert.equal(seen.headers["API-Key"], "test-key");
+    assert.match(seen.url, /size=100\b/);
+  } finally {
+    restore();
+    if (prev === undefined) delete process.env.URLSCAN_API_KEY; else process.env.URLSCAN_API_KEY = prev;
   }
 });

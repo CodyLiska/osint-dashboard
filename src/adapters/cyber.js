@@ -1,6 +1,7 @@
 import { cachedResilient } from "../lib/cache.js";
 import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
+import { cwesFromCve, techniquesForCwes } from "../lib/attack.js";
 
 const nvdBase = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 
@@ -98,6 +99,8 @@ function toEntity(item, index) {
   const exploited = Boolean(item.kev);
   const point = sourcePoint(item.sourceBucket, index);
   const source = exploited ? "CISA KEV / NVD" : item.sourceBucket;
+  const cwes = cwesFromCve(cve);
+  const techniques = techniquesForCwes(cwes);
   return entity({
     id: `cve-${cve.id}`,
     layer: "cyber",
@@ -118,6 +121,8 @@ function toEntity(item, index) {
     product: item.kev?.product || null,
     dueDate: item.kev?.dueDate || null,
     sourceBucket: item.sourceBucket,
+    cwes: cwes.length ? cwes : null,
+    techniques: techniques.length ? techniques : null,
     raw: item
   });
 }
@@ -184,12 +189,14 @@ export async function cyberLayer() {
     .map(toEntity)
     .filter(finiteCoordinate);
 
+  const tagged = entities.filter((e) => e.techniques?.length).length;
   return {
     entities,
     meta: {
       source: "CISA KEV, NVD, FIRST EPSS",
       count: entities.length,
       nvdWindowDays: Number(process.env.CYBER_NVD_WINDOW_DAYS || 30),
+      techniqueCoverage: { tagged, total: entities.length },
       cisaKevCatalogDate: kevCatalog.catalogVersion || null,
       sourceCounts: {
         nvdKev: nvdKev.vulnerabilities?.length || 0,

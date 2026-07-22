@@ -183,6 +183,21 @@ test("GET /api/intel/whois returns a parsed RDAP summary", async () => {
   assert.equal(res.json().summary.domain, "EXAMPLE.COM");
 });
 
+test("GET /api/intel/correlate returns the joined correlation shape", async () => {
+  const res = await get("/api/intel/correlate?ip=8.8.8.8");
+  assert.equal(res.status, 200);
+  const body = res.json();
+  assert.equal(body.type, "ip");
+  assert.ok(Array.isArray(body.results));
+  assert.ok("geo" in body && "network" in body);
+});
+
+test("GET /api/intel/correlate without an ip returns 400", async () => {
+  const res = await get("/api/intel/correlate");
+  assert.equal(res.status, 400);
+  assert.match(res.json().error, /ip required/);
+});
+
 // ---- Phase 2 read API ------------------------------------------------------
 // With no DB open (the default in this suite) the endpoints return the graceful
 // disabled shape rather than erroring.
@@ -226,6 +241,36 @@ test("GET /api/changes and /api/history/:layer read from an enabled store", asyn
   } finally {
     closeDb(); // leave persistence disabled for any later tests
   }
+});
+
+test("GET /api/snapshot/:layer replays the layer as of a past instant", async () => {
+  const db = openDb(":memory:");
+  try {
+    reconcile(db, "seismic", [{ id: "q1", severity: 3, name: "M3" }], "2026-07-19T00:00:00.000Z");
+    reconcile(db, "seismic", [{ id: "q1", severity: 6, name: "M6" }, { id: "q2", name: "B" }], "2026-07-19T02:00:00.000Z");
+
+    const early = await get("/api/snapshot/seismic?at=2026-07-19T01:00:00.000Z");
+    assert.equal(early.status, 200);
+    const body = early.json();
+    assert.equal(body.enabled, true);
+    assert.deepEqual(body.entities.map((e) => e.id), ["q1"]);
+    assert.equal(body.entities[0].severity, 3); // pre-escalation state
+  } finally {
+    closeDb();
+  }
+});
+
+test("GET /api/snapshot/:layer returns { enabled:false } when persistence is disabled", async () => {
+  closeDb();
+  const res = await get("/api/snapshot/seismic?at=2026-07-19T00:00:00.000Z");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json(), { enabled: false });
+});
+
+test("GET /api/snapshot/:layer rejects a malformed at", async () => {
+  const res = await get("/api/snapshot/seismic?at=not-a-date");
+  assert.equal(res.status, 400);
+  assert.match(res.json().error, /ISO 8601/);
 });
 
 test("GET /api/alerts degrades gracefully when persistence is disabled", async () => {

@@ -77,6 +77,26 @@ test("rate-limit is detected from the message when no status is attached", async
   assert.match(received.at(-1), /🚫.*rate-limited/);
 });
 
+test("ALERT_RATE_LIMIT_ONLY suppresses non-rate-limit errors but still alerts on 429/403", async () => {
+  process.env.ALERT_RATE_LIMIT_ONLY = "true";
+  try {
+    // A plain 5xx is suppressed and does NOT consume the cooldown window...
+    let start = received.length;
+    alertSource("filtered", "Some Source", serverErr());
+    await wait(80);
+    assert.equal(received.length, start, "non-rate-limit error is suppressed");
+
+    // ...so a rate-limit for the same source immediately after still fires.
+    start = received.length;
+    alertSource("filtered", "Some Source", rateLimit());
+    await wait(80);
+    assert.equal(received.length, start + 1, "rate-limit still alerts under the filter");
+    assert.match(received.at(-1), /🚫.*rate-limited/);
+  } finally {
+    delete process.env.ALERT_RATE_LIMIT_ONLY;
+  }
+});
+
 test("with no webhook configured, alerting is a silent no-op", async () => {
   const saved = process.env.SLACK_WEBHOOK_URL;
   delete process.env.SLACK_WEBHOOK_URL;

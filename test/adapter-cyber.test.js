@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { installJsonFetch } from "./helpers/mock-fetch.js";
 import { cyberLayer } from "../src/adapters/cyber.js";
 
-const cve = (id, score) => ({
+const cve = (id, score, cwes = []) => ({
   cve: {
     id,
     published: "2026-06-01T00:00:00.000",
     descriptions: [{ lang: "en", value: `${id} description` }],
-    metrics: { cvssMetricV31: [{ cvssData: { baseScore: score, baseSeverity: score >= 9 ? "CRITICAL" : "HIGH" } }] }
+    metrics: { cvssMetricV31: [{ cvssData: { baseScore: score, baseSeverity: score >= 9 ? "CRITICAL" : "HIGH" } }] },
+    weaknesses: cwes.map((value) => ({ description: [{ lang: "en", value }] }))
   }
 });
 
@@ -53,6 +54,28 @@ test("cyberLayer merges NVD buckets, dedupes by CVE, and flags/ranks KEV entries
   } finally {
     restore();
     if (saved === undefined) delete process.env.NVD_API_KEY; else process.env.NVD_API_KEY = saved;
+  }
+});
+
+test("cyberLayer tags CVEs with ATT&CK techniques from their CWEs", async () => {
+  const restore = installJsonFetch(routes({
+    critical: [cve("CVE-SQLI", 9.5, ["CWE-89"])],          // → T1190
+    high: [cve("CVE-CMD", 7.2, ["CWE-78", "CWE-22"]), cve("CVE-NONE", 7.0, ["NVD-CWE-noinfo"])]
+  }));
+  try {
+    const { entities, meta } = await cyberLayer();
+    const byId = Object.fromEntries(entities.map((e) => [e.name, e]));
+    assert.deepEqual(byId["CVE-SQLI"].cwes, ["CWE-89"]);
+    assert.deepEqual(byId["CVE-SQLI"].techniques.map((t) => t.id), ["T1190"]);
+    // CWE-78 → T1059, CWE-22 → T1190; both surface, in mapping order.
+    assert.deepEqual(byId["CVE-CMD"].techniques.map((t) => t.id), ["T1059", "T1190"]);
+    // A CVE with only a placeholder CWE gets no tag rather than an empty array.
+    assert.equal(byId["CVE-NONE"].techniques, null);
+    assert.equal(byId["CVE-NONE"].cwes, null);
+    assert.equal(meta.techniqueCoverage.tagged, 2);
+    assert.equal(meta.techniqueCoverage.total, 3);
+  } finally {
+    restore();
   }
 });
 

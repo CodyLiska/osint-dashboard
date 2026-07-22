@@ -17,6 +17,8 @@ function isRateLimit(error) {
   return error?.status === 429 || error?.status === 403 || /^(429|403)\b/.test(String(error?.message || ""));
 }
 
+const isTruthy = (value) => /^(1|true|yes|on)$/i.test(String(value ?? ""));
+
 async function postToSlack(text) {
   const url = process.env.SLACK_WEBHOOK_URL;
   if (!url) return;
@@ -43,11 +45,18 @@ export function postAlert(text) {
 // are tagged distinctly so IP-level throttling is obvious at a glance.
 export function alertSource(id, source, error) {
   if (!process.env.SLACK_WEBHOOK_URL) return;
+
+  const rateLimited = isRateLimit(error);
+  // Optional noise filter: with ALERT_RATE_LIMIT_ONLY set, only rate-limit
+  // failures (429/403) alert; transient upstream 5xx/network/timeout errors are
+  // suppressed. Off by default, so behavior is unchanged unless opted in. Checked
+  // before the cooldown stamp so a suppressed error doesn't consume the window.
+  if (isTruthy(process.env.ALERT_RATE_LIMIT_ONLY) && !rateLimited) return;
+
   const now = Date.now();
   if (now - (lastAlertAt.get(id) || 0) < COOLDOWN_MS) return;
   lastAlertAt.set(id, now);
 
-  const rateLimited = isRateLimit(error);
   const icon = rateLimited ? "🚫" : "⚠️"; // 🚫 / ⚠️
   const kind = rateLimited ? "rate-limited" : "error";
   const detail = String(error?.message || error || "unknown");

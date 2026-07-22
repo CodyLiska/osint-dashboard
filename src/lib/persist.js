@@ -30,6 +30,27 @@ CREATE INDEX IF NOT EXISTS idx_events_last_seen    ON entity_events(last_seen);
 CREATE INDEX IF NOT EXISTS idx_events_first_seen   ON entity_events(first_seen);
 CREATE INDEX IF NOT EXISTS idx_events_layer_status ON entity_events(layer, status);
 
+-- Append-on-change log of an entity's mutable state (severity/position) over time.
+-- entity_events keeps only the *current* state, so it can answer "when did this
+-- appear/close" but not "what did the map look like at 3am" — a quake that grew
+-- M4→M6 shows only M6. This table is what makes true point-in-time replay possible
+-- (Phase 5 scrubber): one row per state change, so getSnapshotAt() can reconstruct
+-- each entity as of any past instant. Append-on-CHANGE (not every reconcile) keeps
+-- it bounded — an entity that never changes writes one baseline row at appearance.
+CREATE TABLE IF NOT EXISTS entity_observations (
+  layer       TEXT    NOT NULL,
+  entity_id   TEXT    NOT NULL,
+  observed_at TEXT    NOT NULL,
+  severity    INTEGER,
+  lat         REAL,
+  lon         REAL,
+  name        TEXT,
+  source      TEXT,
+  payload     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_obs_layer_time ON entity_observations(layer, observed_at);
+CREATE INDEX IF NOT EXISTS idx_obs_entity     ON entity_observations(layer, entity_id, observed_at);
+
 -- One row per (rule, entity, reason) that has ever fired. This is what makes an
 -- entity alert exactly once per rule, permanently, across restarts — the whole
 -- reason the alert engine is coupled to the store. Doubles as the audit trail
@@ -87,6 +108,16 @@ export function getDb() {
 const toInt = (v) => (Number.isFinite(v) ? Math.round(v) : null);
 const toNum = (v) => (Number.isFinite(v) ? v : null);
 
+// Whether an entity's replay-relevant state (severity/position) differs from its
+// last active row — the gate for appending an observation. No prior row (new or
+// returning entity) always counts as a change, so it gets a baseline observation.
+function observationChanged(priorRow, e) {
+  if (!priorRow) return true;
+  return toInt(priorRow.severity) !== toInt(e.severity)
+    || toNum(priorRow.lat) !== toNum(e.lat)
+    || toNum(priorRow.lon) !== toNum(e.lon);
+}
+
 // The reconcile transaction: upsert every entity in the snapshot (new rows get
 // first_seen=now; existing rows advance last_seen and refresh mutable fields),
 // then close any row for this layer not touched this batch. Runs against an
@@ -121,11 +152,12 @@ function storedEntities(handle, layer, ids) {
 // stored.
 export function reconcile(handle, layer, entities, now = new Date().toISOString()) {
   // Prior ACTIVE state for this layer, used to tell new from returning from
-  // escalating. Indexed by idx_events_layer_status.
+  // escalating, and to decide whether an entity's mutable state changed (so we
+  // append an observation only on change). Indexed by idx_events_layer_status.
   const priorRows = handle
-    .prepare(`SELECT entity_id, severity FROM entity_events WHERE layer = ? AND status = 'active'`)
+    .prepare(`SELECT entity_id, severity, lat, lon FROM entity_events WHERE layer = ? AND status = 'active'`)
     .all(layer);
-  const prior = new Map(priorRows.map((row) => [row.entity_id, row.severity]));
+  const prior = new Map(priorRows.map((row) => [row.entity_id, row]));
 
   // "Cold" means this layer has never been reconciled — not merely that nothing
   // is active. On a first run every entity looks new, so alerting on that batch
@@ -146,7 +178,7 @@ export function reconcile(handle, layer, entities, now = new Date().toISOString(
       changes.push({ reason: "appeared", entity: e });
       continue;
     }
-    const previousSeverity = prior.get(id);
+    const previousSeverity = prior.get(id).severity;
     const severity = toInt(e.severity);
     if (Number.isFinite(severity) && Number.isFinite(previousSeverity) && severity > previousSeverity) {
       changes.push({ reason: "escalated", entity: e, previousSeverity });
@@ -175,14 +207,20 @@ export function reconcile(handle, layer, entities, now = new Date().toISOString(
     UPDATE entity_events SET status = 'closed', closed_at = ?
     WHERE layer = ? AND status = 'active' AND last_seen <> ?
   `);
+  const observe = handle.prepare(`
+    INSERT INTO entity_observations
+      (layer, entity_id, observed_at, severity, lat, lon, name, source, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
   handle.exec("BEGIN");
   try {
     for (const e of entities || []) {
       if (!e || e.id == null) continue;
+      const id = String(e.id);
       upsert.run(
         layer,
-        String(e.id),
+        id,
         now,
         now,
         toInt(e.severity),
@@ -192,6 +230,12 @@ export function reconcile(handle, layer, entities, now = new Date().toISOString(
         e.source ?? null,
         JSON.stringify(e)
       );
+      // Append an observation only when the mutable state is new or changed, so a
+      // long-lived unchanging entity contributes one baseline row, not one per
+      // reconcile. prior holds this layer's active rows read before the upsert.
+      if (observationChanged(prior.get(id), e)) {
+        observe.run(layer, id, now, toInt(e.severity), toNum(e.lat), toNum(e.lon), e.name ?? null, e.source ?? null, JSON.stringify(e));
+      }
     }
     close.run(now, layer, now);
     handle.exec("COMMIT");
@@ -220,6 +264,12 @@ export function pruneOld(handle, retentionDays = 90, nowMs = Date.now()) {
   // (rule, entity, reason), which is intended: after the retention period the
   // event is no longer part of the recent picture.
   handle.prepare(`DELETE FROM alert_log WHERE fired_at < ?`).run(cutoff);
+  // Observations age out on the same window. Replay is only offered within the
+  // retention window, so a state change older than the cutoff is unreachable; the
+  // trade-off is that an entity whose last state change predates the window loses
+  // that baseline, so replaying near the window edge can under-represent a rare
+  // long-lived, never-changing entity. Acceptable for these event-shaped layers.
+  handle.prepare(`DELETE FROM entity_observations WHERE observed_at < ?`).run(cutoff);
   return removed;
 }
 
@@ -323,6 +373,50 @@ export function getHistory(layer, { since, until } = {}) {
     .all(layer, to, from)
     .map(rowToChange);
   return { enabled: true, layer, since: from, until: to, events };
+}
+
+// Point-in-time replay (Phase 5): reconstruct a layer as it was at instant `at`.
+// For each entity, take its latest observation at/before `at`, then keep only
+// entities whose event lifespan actually covered `at` (appeared at/before it and
+// had not closed by then), so an event that ended before `at` — or began after —
+// is not shown. Returns the stored entity payloads, ready for the same renderer
+// the live layers use. `at` is a valid ISO string (the route validates/defaults).
+export function getSnapshotAt(layer, at) {
+  if (!db) return { enabled: false };
+  const t = at || new Date().toISOString();
+  const rows = db
+    .prepare(
+      `SELECT o.entity_id AS entity_id, o.payload AS payload
+       FROM entity_observations o
+       JOIN (
+         SELECT entity_id, MAX(observed_at) AS mx
+         FROM entity_observations
+         WHERE layer = ? AND observed_at <= ?
+         GROUP BY entity_id
+       ) latest ON o.entity_id = latest.entity_id AND o.observed_at = latest.mx
+       WHERE o.layer = ?
+         AND EXISTS (
+           SELECT 1 FROM entity_events e
+           WHERE e.layer = ? AND e.entity_id = o.entity_id
+             AND e.first_seen <= ? AND (e.closed_at IS NULL OR e.closed_at > ?)
+         )`
+    )
+    .all(layer, t, layer, layer, t, t);
+
+  // Dedupe by entity_id (guards the astronomically-rare same-millisecond tie in
+  // the observed_at self-join) and parse the stored entity payloads.
+  const seen = new Set();
+  const entities = [];
+  for (const row of rows) {
+    if (seen.has(row.entity_id)) continue;
+    seen.add(row.entity_id);
+    try {
+      entities.push(JSON.parse(row.payload));
+    } catch {
+      // A row without usable payload can't be placed on the map; skip it.
+    }
+  }
+  return { enabled: true, layer, at: t, entities };
 }
 
 // Close the singleton handle and disable persistence (used at shutdown and to

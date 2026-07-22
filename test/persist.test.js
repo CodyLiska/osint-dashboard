@@ -6,6 +6,7 @@ import {
   closeDb,
   getChanges,
   getHistory,
+  getSnapshotAt,
   hasFired,
   isPersistable,
   openDb,
@@ -388,4 +389,80 @@ test("every change carries a reason, so the alert log can key on it", () => {
   const reasons = result.changes.map((c) => c.reason).sort();
   assert.deepEqual(reasons, ["appeared", "closed", "escalated"]);
   assert.ok(result.changes.every((c) => c.entity && c.entity.id), "each change carries an entity");
+});
+
+// ---- Phase 5: observations + point-in-time replay --------------------------
+
+const observations = (db) =>
+  db.prepare("SELECT * FROM entity_observations ORDER BY observed_at").all();
+
+test("reconcile appends an observation only when state is new or changed", () => {
+  const db = freshDb();
+  reconcile(db, "seismic", [{ id: "q1", severity: 3, lat: 1, lon: 2 }], "2026-07-19T00:00:00.000Z");
+  assert.equal(observations(db).length, 1, "baseline observation on first appearance");
+
+  reconcile(db, "seismic", [{ id: "q1", severity: 3, lat: 1, lon: 2 }], "2026-07-19T01:00:00.000Z");
+  assert.equal(observations(db).length, 1, "unchanged state adds nothing");
+
+  reconcile(db, "seismic", [{ id: "q1", severity: 5, lat: 1, lon: 2 }], "2026-07-19T02:00:00.000Z");
+  assert.equal(observations(db).length, 2, "severity change appends an observation");
+
+  reconcile(db, "seismic", [{ id: "q1", severity: 5, lat: 9, lon: 2 }], "2026-07-19T03:00:00.000Z");
+  assert.equal(observations(db).length, 3, "position change appends an observation");
+});
+
+test("getSnapshotAt reconstructs a layer as of a past instant", () => {
+  const db = openDb(":memory:");
+  try {
+    reconcile(db, "seismic", [{ id: "q1", severity: 3, lat: 1, lon: 2, name: "M3" }], "2026-07-19T00:00:00.000Z");
+    reconcile(db, "seismic", [
+      { id: "q1", severity: 6, lat: 1, lon: 2, name: "M6" },
+      { id: "q2", severity: 4, lat: 3, lon: 4, name: "M4" }
+    ], "2026-07-19T02:00:00.000Z");
+
+    // At 01:00 only q1 existed, and it was still M3 (pre-escalation).
+    const early = getSnapshotAt("seismic", "2026-07-19T01:00:00.000Z");
+    assert.equal(early.enabled, true);
+    assert.deepEqual(early.entities.map((e) => e.id), ["q1"]);
+    assert.equal(early.entities[0].severity, 3);
+    assert.equal(early.entities[0].name, "M3");
+
+    // At 02:30 q1 has escalated to M6 and q2 has appeared.
+    const late = getSnapshotAt("seismic", "2026-07-19T02:30:00.000Z");
+    assert.equal(late.entities.length, 2);
+    assert.equal(late.entities.find((e) => e.id === "q1").severity, 6);
+  } finally {
+    closeDb();
+  }
+});
+
+test("getSnapshotAt excludes events that had already closed at the instant", () => {
+  const db = openDb(":memory:");
+  try {
+    reconcile(db, "seismic", [
+      { id: "q1", severity: 3, lat: 1, lon: 2 },
+      { id: "q2", severity: 3, lat: 3, lon: 4 }
+    ], "2026-07-19T00:00:00.000Z");
+    reconcile(db, "seismic", [{ id: "q1", severity: 3, lat: 1, lon: 2 }], "2026-07-19T02:00:00.000Z"); // q2 closes
+
+    // At 01:00 both were present; at 03:00 only q1 remains.
+    assert.deepEqual(getSnapshotAt("seismic", "2026-07-19T01:00:00.000Z").entities.map((e) => e.id).sort(), ["q1", "q2"]);
+    assert.deepEqual(getSnapshotAt("seismic", "2026-07-19T03:00:00.000Z").entities.map((e) => e.id), ["q1"]);
+  } finally {
+    closeDb();
+  }
+});
+
+test("getSnapshotAt returns the disabled shape when persistence is off", () => {
+  closeDb();
+  assert.deepEqual(getSnapshotAt("seismic", "2026-07-19T00:00:00.000Z"), { enabled: false });
+});
+
+test("pruneOld drops observations older than the retention window", () => {
+  const db = freshDb();
+  reconcile(db, "seismic", [{ id: "q1", severity: 3 }], "2020-01-01T00:00:00.000Z"); // ancient baseline
+  reconcile(db, "seismic", [{ id: "q1", severity: 9 }], new Date().toISOString());    // recent change
+  assert.equal(observations(db).length, 2);
+  pruneOld(db, 90);
+  assert.equal(observations(db).length, 1, "only the in-window observation survives");
 });

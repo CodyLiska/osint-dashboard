@@ -2,7 +2,7 @@ import { LAYER_GROUPS, layerDefinitions, loadStaticLayers } from "./data.js";
 import {
   escapeHtml, clusterPoints, shouldCluster, buildFeed, advancePosition, filterBySeverity,
   detailRows, snapshotEntity, extLink, sanctionDetail, intelLinks, intelCards, cveDetail, relativeTime, ruleHealth,
-  boundsKey, CLUSTER_MAX_ZOOM
+  attackTags, correlationBanner, scrubberTime, replayEntities, boundsKey, CLUSTER_MAX_ZOOM
 } from "./logic.js";
 
 // Populated from the versioned public/data/*.json datasets before initial hydrate.
@@ -625,6 +625,23 @@ function buildClusterLayers(id, clusters) {
 // Rebuild only the map layers + top-line counts. Cheap enough to run on the
 // animation tick; deliberately does NOT touch the DOM panels or hit /api/health.
 function renderMap() {
+  // Replay mode short-circuits the live pipeline: render only the reconstructed
+  // historical snapshot, grouped by layer so each point keeps its normal icon
+  // (buildIconLayer reads entity.layer). The scrubber banner makes clear the map
+  // is showing the past, not live data.
+  if (state.replay) {
+    const byLayer = new Map();
+    for (const entity of state.replay.entities) {
+      if (!byLayer.has(entity.layer)) byLayer.set(entity.layer, []);
+      byLayer.get(entity.layer).push(entity);
+    }
+    const replayLayers = [];
+    for (const [id, rows] of byLayer) replayLayers.push(buildIconLayer(id, rows));
+    state.deckOverlay.setProps({ layers: replayLayers });
+    els.entityCount.textContent = state.replay.entities.length.toLocaleString();
+    return;
+  }
+
   const active = [...state.enabled];
   const zoom = state.map ? state.map.getZoom() : 0;
   const layers = [];
@@ -1159,6 +1176,7 @@ function showDetail(item) {
     ${description ? `<p class="detail-desc">${escapeHtml(description)}</p>` : ""}
     ${rows.length ? `<dl class="detail-grid">${rows.map(([label, value]) =>
       `<div class="detail-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
+    ${attackTags(item)}
     ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open source</a>` : ""}
   `;
   els.detail.querySelector(".close-detail").addEventListener("click", () => {
@@ -1230,6 +1248,10 @@ async function renderChanges() {
     return;
   }
 
+  // Persistence is on, so point-in-time replay is available: reveal the scrubber
+  // and (re)anchor its window to a fresh "now".
+  setupScrubber();
+
   const added = payload.added || [];
   const closed = payload.closed || [];
   changeItems = [...added, ...closed];
@@ -1247,6 +1269,104 @@ async function renderChanges() {
     button.addEventListener("click", () => {
       const entity = changeItems[index]?.entity;
       if (!entity || !Number.isFinite(entity.lat) || !Number.isFinite(entity.lon)) return;
+      state.map.flyTo({ center: [entity.lon, entity.lat], zoom: 5 });
+      showDetail(entity);
+    });
+  });
+}
+
+// ---- Timeline scrubber (Phase 5 point-in-time replay) ----------------------
+// A slider over the last REPLAY_WINDOW_MS. Dragging updates the readout live;
+// releasing fetches the historical snapshot for every enabled layer and renders
+// it on the map (via renderMap's replay branch) plus a click-to-fly list. The far
+// right of the slider means "live" and returns to the normal pipeline. Only usable
+// when persistence is on — revealed by renderChanges once /api/changes reports it.
+const REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const SCRUBBER_MAX = 1000;
+let replayWindow = null; // { startMs, endMs } anchored when the panel renders
+let replayItems = [];
+let scrubberWired = false;
+
+function setupScrubber() {
+  const scrubber = document.querySelector("#scrubber");
+  if (!scrubber) return;
+  scrubber.hidden = false;
+  const endMs = Date.now();
+  replayWindow = { startMs: endMs - REPLAY_WINDOW_MS, endMs };
+  const windowEl = document.querySelector("#scrubber-window");
+  if (windowEl) windowEl.textContent = `last 24h · ${new Date(replayWindow.startMs).toLocaleTimeString()} → now`;
+
+  if (scrubberWired) return; // wire the listeners exactly once
+  scrubberWired = true;
+  const slider = document.querySelector("#scrubber-slider");
+  slider.addEventListener("input", onScrubInput);
+  slider.addEventListener("change", onScrubCommit);
+  document.querySelector("#scrubber-exit").addEventListener("click", exitReplay);
+}
+
+function currentScrubTime(value) {
+  return scrubberTime(value, SCRUBBER_MAX, replayWindow.startMs, replayWindow.endMs);
+}
+
+function onScrubInput(event) {
+  if (!replayWindow) return;
+  const t = currentScrubTime(event.target.value);
+  document.querySelector("#scrubber-time").textContent = t.live ? "live" : new Date(t.ms).toLocaleString();
+}
+
+function onScrubCommit(event) {
+  if (!replayWindow) return;
+  const t = currentScrubTime(event.target.value);
+  if (t.live) exitReplay();
+  else enterReplayAt(t.iso);
+}
+
+async function enterReplayAt(iso) {
+  const layers = [...state.enabled];
+  const payloads = await Promise.all(layers.map((id) =>
+    fetchJson(`/api/snapshot/${id}?at=${encodeURIComponent(iso)}`).catch(() => ({ enabled: false }))));
+  const entities = replayEntities(payloads);
+  state.replay = { at: iso, entities };
+  document.querySelector("#scrubber").classList.add("active");
+  document.querySelector("#scrubber-exit").hidden = false;
+  renderMap();
+  renderReplayList(iso, entities);
+}
+
+function exitReplay() {
+  state.replay = null;
+  replayItems = [];
+  const slider = document.querySelector("#scrubber-slider");
+  if (slider) slider.value = SCRUBBER_MAX;
+  const timeEl = document.querySelector("#scrubber-time");
+  if (timeEl) timeEl.textContent = "live";
+  document.querySelector("#scrubber")?.classList.remove("active");
+  const exit = document.querySelector("#scrubber-exit");
+  if (exit) exit.hidden = true;
+  renderMap();
+  renderChanges(); // restore the What-Changed list into #changes-result
+}
+
+// Reconstructed entities at instant `iso`, as a click-to-fly list (reuses the
+// feed-item pattern). Overwrites the What-Changed panel while replaying; exit
+// restores it.
+function renderReplayList(iso, entities) {
+  const panel = document.querySelector("#changes-result");
+  if (!panel) return;
+  replayItems = entities.filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon));
+  const rows = replayItems.slice(0, 80).map((entity) => `
+    <button class="feed-item" type="button">
+      <strong>${escapeHtml(String(entity.name || entity.id))}</strong>
+      <span>${escapeHtml(layerLabels.get(entity.layer) || entity.layer)}</span>
+    </button>`).join("");
+  panel.innerHTML = `
+    <div class="changes-since">Replay · ${escapeHtml(new Date(iso).toLocaleString())} · ${replayItems.length} entit${replayItems.length === 1 ? "y" : "ies"}</div>
+    ${replayItems.length ? `<div class="feed-list">${rows}</div>` : `<div class="health-empty">Nothing was live at that moment (in persistable layers).</div>`}
+  `;
+  panel.querySelectorAll(".feed-item").forEach((button, index) => {
+    button.addEventListener("click", () => {
+      const entity = replayItems[index];
+      if (!entity) return;
       state.map.flyTo({ center: [entity.lon, entity.lat], zoom: 5 });
       showDetail(entity);
     });
@@ -1522,7 +1642,7 @@ async function runIntelLookup() {
   recordRecon("intel", `${kind}: ${q}`, { "#intel-kind": kind, "#intel-query": q });
   result.textContent = "Checking intelligence sources...";
   const route = {
-    ip: `/api/intel/ip?ip=${encodeURIComponent(q)}`,
+    ip: `/api/intel/correlate?ip=${encodeURIComponent(q)}`,
     domain: `/api/intel/domain?domain=${encodeURIComponent(q)}`,
     url: `/api/intel/virustotal/url?url=${encodeURIComponent(q)}`,
     hash: `/api/intel/malwarebazaar?hash=${encodeURIComponent(q)}`,
@@ -1530,12 +1650,34 @@ async function runIntelLookup() {
   }[kind];
   try {
     const payload = await fetchJson(route);
-    result.innerHTML = kind === "whois"
-      ? renderWhois(payload)
-      : `<div class="result-refs">${intelLinks(kind, q)}</div>${renderIntelResult(payload)}`;
+    if (kind === "whois") {
+      result.innerHTML = renderWhois(payload);
+    } else if (kind === "ip") {
+      // The correlate endpoint returns the same results[] plus a correlation
+      // header; render the summary banner above the per-source cards.
+      result.innerHTML = `${correlationBanner(payload)}<div class="result-refs">${intelLinks(kind, q)}</div>${renderIntelResult(payload)}`;
+      wireCorrelateLocate(result);
+    } else {
+      result.innerHTML = `<div class="result-refs">${intelLinks(kind, q)}</div>${renderIntelResult(payload)}`;
+    }
   } catch (error) {
     result.textContent = error.message;
   }
+}
+
+// Wire the "Locate on map" button in the correlation banner: fly to the country
+// centroid and drop a detail-card pin. User-initiated rather than auto-flying, so
+// an IP lookup never yanks the analyst's viewport out from under them.
+function wireCorrelateLocate(container) {
+  const btn = container.querySelector(".correlate-locate");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const lat = Number(btn.dataset.lat);
+    const lon = Number(btn.dataset.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    state.map.flyTo({ center: [lon, lat], zoom: 4 });
+    showDetail({ type: "IP correlation", name: btn.dataset.label, lat, lon, source: "Country geolocation (centroid)" });
+  });
 }
 
 // Fan-out lookups (IP, domain) render as per-source cards. Single-source kinds

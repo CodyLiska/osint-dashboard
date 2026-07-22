@@ -122,6 +122,7 @@ export function detailRows(item) {
   if (item.epss) add("EPSS", `${(Number(item.epss) * 100).toFixed(1)}%`);
   if (item.kev) add("Exploited", "Known exploited vulnerability");
   add("Due", item.dueDate);
+  if (item.cwes?.length) add("Weakness", item.cwes.join(", "));
   add("Chain", item.chain);
   add("Address", item.address);
   if (item.groupCount) add("Entries", Number(item.groupCount).toLocaleString());
@@ -157,6 +158,22 @@ export function detailRows(item) {
   add("Confidence", item.confidence);
   add("Source", item.source);
   return rows;
+}
+
+// ATT&CK technique tags for a cyber entity, each a deep-link to its MITRE page.
+// Returns "" when the entity carries no techniques (non-cyber entities, or a CVE
+// whose CWE has no curated mapping), so callers can drop it into a card blindly.
+// The tags are weakness-derived (CVE→CWE→technique), labelled as such in the UI.
+export function attackTags(item) {
+  const techniques = item?.techniques || [];
+  if (!techniques.length) return "";
+  const links = techniques
+    .map((t) => extLink(t.url, `${t.id} · ${t.name}`))
+    .join("");
+  return `<div class="attack-tags">
+    <span class="attack-label">ATT&CK <span class="attack-note">(from CWE)</span></span>
+    <div class="result-refs">${links}</div>
+  </div>`;
 }
 
 export function kvRow(label, value) {
@@ -390,23 +407,31 @@ function genericFacts(data) {
     .map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : String(value)]);
 }
 
+// Classify one fan-out result into its verdict state without rendering. Owned
+// here so the per-source cards and the correlation summary count identically.
+// "not configured" is an operator action, not a source failure — an analyst must
+// be able to tell "we did not check" from "we checked and found nothing".
+export function intelResultState(result) {
+  if (result.error) return /not configured|api[_ ]key|appname/i.test(result.error) ? "off" : "failed";
+  if (result.data) {
+    const renderer = INTEL_RENDERERS[result.source];
+    return renderer ? renderer(result.data).state : "clean";
+  }
+  return "failed";
+}
+
 // Turns one fan-out result into a card. Exported for tests; app.js renders the
 // full set through intelCards().
 export function intelCard(result) {
   const source = result.source || "Unknown source";
-  let state = "failed";
+  const state = intelResultState(result);
   let facts = [];
 
   if (result.error) {
-    // "not configured" is an operator action, not a source failure — an analyst
-    // must be able to tell "we did not check" from "we checked and found nothing".
-    state = /not configured|api[_ ]key|appname/i.test(result.error) ? "off" : "failed";
     facts = [["Reason", result.error]];
   } else if (result.data) {
     const renderer = INTEL_RENDERERS[source];
-    const rendered = renderer ? renderer(result.data) : { state: "clean", facts: genericFacts(result.data) };
-    state = rendered.state;
-    facts = rendered.facts;
+    facts = renderer ? renderer(result.data).facts : genericFacts(result.data);
   }
 
   const { label, className } = intelState(state);
@@ -434,6 +459,82 @@ export function intelCards(payload) {
     : `<div class="badge ok">No hits across ${checked} checked source(s)</div>`;
 
   return `${summary}<div class="intel-cards">${cards.map((c) => c.html).join("")}</div>`;
+}
+
+// ---- Cross-source correlation ---------------------------------------------
+// The /api/intel/correlate payload is the IP fan-out results plus resolved
+// network, geo, and sanctions. This collapses the ten cards into one verdict:
+// threat (how many reputation sources flagged it), network (announcing AS),
+// geo (country), and sanctions (RDAP contact hit). Threat is counted here rather
+// than trusting a server field so the count and the per-source cards can't drift.
+export function correlationSummary(payload) {
+  const results = payload?.results || [];
+  const states = results.map(intelResultState);
+  const flaggedSources = results.filter((_, i) => states[i] === "flagged").map((r) => r.source);
+  const checkedCount = states.filter((s) => s === "flagged" || s === "clean").length;
+  return {
+    flaggedCount: flaggedSources.length,
+    flaggedSources,
+    checkedCount,
+    network: payload?.network || {},
+    geo: payload?.geo || {},
+    sanctions: payload?.sanctions || null
+  };
+}
+
+export function correlationBanner(payload) {
+  const s = correlationSummary(payload);
+  const sanctioned = Boolean(s.sanctions?.sanctioned);
+  const cls = s.flaggedCount > 0 || sanctioned ? "danger" : "ok";
+
+  const threat = s.checkedCount
+    ? `flagged by ${s.flaggedCount} of ${s.checkedCount} source${s.checkedCount === 1 ? "" : "s"}${s.flaggedCount ? ` — ${s.flaggedSources.join(", ")}` : ""}`
+    : "no source returned a verdict";
+  const network = [s.network.asn ? `AS${s.network.asn}` : null, s.network.holder].filter(Boolean).join(" · ") || "unknown";
+  const sanctionText = sanctioned
+    ? `${s.sanctions.flagged.length} name match — ${s.sanctions.flagged.map((r) => r.name).join(", ")}`
+    : (s.sanctions ? "no OpenSanctions name match" : "not checked");
+
+  const canLocate = Number.isFinite(s.geo.lat) && Number.isFinite(s.geo.lon);
+  const geoValue = escapeHtml(s.geo.country || "unknown")
+    + (canLocate
+      ? ` <button type="button" class="correlate-locate" data-lat="${s.geo.lat}" data-lon="${s.geo.lon}" data-label="${escapeHtml(payload?.indicator || "")}">Locate on map ↗</button>`
+      : "");
+
+  const row = (label, value) => `<div class="correlate-row"><span>${label}</span><strong>${value}</strong></div>`;
+  return `<div class="correlate-banner ${cls}">
+    <div class="correlate-title">Correlation — ${escapeHtml(payload?.indicator || "")}</div>
+    ${row("Threat", escapeHtml(threat))}
+    ${row("Network", escapeHtml(network))}
+    ${row("Geo", geoValue)}
+    ${row("Sanctions", escapeHtml(sanctionText))}
+  </div>`;
+}
+
+// ---- Timeline scrubber (Phase 5 replay) ------------------------------------
+// The scrubber slider spans a fixed window [startMs, endMs]. At the far right it
+// means "live" (no replay); anywhere left of that maps linearly to a past instant.
+// Pure so the mapping is unit-tested; the DOM layer formats the label and fetches.
+export function scrubberTime(value, max, startMs, endMs) {
+  const v = Math.max(0, Math.min(Number(value) || 0, max));
+  if (v >= max) return { live: true, ms: endMs, iso: new Date(endMs).toISOString() };
+  const ms = Math.round(startMs + ((endMs - startMs) * v) / max);
+  return { live: false, ms, iso: new Date(ms).toISOString() };
+}
+
+// Merge per-layer snapshot payloads (each { enabled, entities }) into one flat
+// list for the replay overlay, keeping only enabled snapshots and placeable
+// entities. Non-persistable layers come back enabled with an empty list, so
+// fanning out over every enabled layer is safe — they simply contribute nothing.
+export function replayEntities(payloads) {
+  const out = [];
+  for (const payload of payloads || []) {
+    if (!payload?.enabled) continue;
+    for (const entity of payload.entities || []) {
+      if (Number.isFinite(entity?.lat) && Number.isFinite(entity?.lon)) out.push(entity);
+    }
+  }
+  return out;
 }
 
 // ---- Alert rule health -----------------------------------------------------

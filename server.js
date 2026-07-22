@@ -6,6 +6,7 @@ import { layerEntities, sourceName as sourceNameForLayer } from "./src/adapters/
 import {
   abuseIpLookup,
   greyNoiseLookup,
+  correlate,
   domainIntel,
   ipIntel,
   malwareBazaarLookup,
@@ -17,7 +18,7 @@ import {
 import { btcLookup, cveSearch, ethLookup, icsAdvisories, sanctionsSearch, vulnCheckKev } from "./src/adapters/recon.js";
 import { geocode } from "./src/adapters/geo.js";
 import { getHealth, markSource, withHealth } from "./src/lib/health.js";
-import { getAlerts, getChanges, getDb, getHistory, openDb, persistSnapshot, ruleStats, startRetention } from "./src/lib/persist.js";
+import { getAlerts, getChanges, getDb, getHistory, getSnapshotAt, openDb, persistSnapshot, ruleStats, startRetention } from "./src/lib/persist.js";
 import { currentRules, loadRules } from "./src/lib/alert-rules.js";
 import { evaluateAlerts } from "./src/lib/alerts.js";
 
@@ -192,6 +193,19 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, payload, { ...jsonHeaders, "cache-control": "no-store" });
     }
 
+    const snapshotMatch = url.pathname.match(/^\/api\/snapshot\/([a-z0-9-]+)$/);
+    if (snapshotMatch) {
+      const raw = url.searchParams.get("at");
+      if (raw && Number.isNaN(Date.parse(raw))) {
+        return sendJson(res, 400, { error: "at must be an ISO 8601 timestamp" });
+      }
+      const at = raw || new Date().toISOString();
+      return sendJson(res, 200, getSnapshotAt(snapshotMatch[1], at), {
+        ...jsonHeaders,
+        "cache-control": "no-store"
+      });
+    }
+
     const historyMatch = url.pathname.match(/^\/api\/history\/([a-z0-9-]+)$/);
     if (historyMatch) {
       const since = url.searchParams.get("since");
@@ -252,6 +266,13 @@ async function handleApi(req, res, url) {
       const ip = url.searchParams.get("ip");
       if (!ip) return sendJson(res, 400, { error: "ip required" });
       const data = await withHealth("ip-intel", "AbuseIPDB, GreyNoise, VirusTotal", () => ipIntel(ip));
+      return sendJson(res, 200, data);
+    }
+
+    if (url.pathname === "/api/intel/correlate") {
+      const ip = url.searchParams.get("ip");
+      if (!ip) return sendJson(res, 400, { error: "ip required" });
+      const data = await withHealth("correlate", "IP intel + RDAP + OpenSanctions", () => correlate(ip));
       return sendJson(res, 200, data);
     }
 

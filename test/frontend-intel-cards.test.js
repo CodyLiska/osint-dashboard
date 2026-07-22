@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { intelCard, intelCards } from "../public/logic.js";
+import { intelCard, intelCards, correlationSummary, correlationBanner } from "../public/logic.js";
 
 const card = (source, data, error) => intelCard({ source, data, error });
 
@@ -88,4 +88,52 @@ test("the summary counts only sources that actually ran", () => {
 test("a single-source payload with no fan-out yields no cards", () => {
   // URL and hash lookups have no results[]; the caller falls back to raw JSON.
   assert.equal(intelCards({ data: { anything: true } }), "");
+});
+
+// ---- Cross-source correlation ----------------------------------------------
+
+const correlatePayload = {
+  indicator: "45.66.77.88",
+  results: [
+    { source: "AbuseIPDB", data: { abuseConfidenceScore: 90 } },   // flagged
+    { source: "Feodo Tracker", data: { c2: true } },                // flagged
+    { source: "Tor Exit Nodes", data: { torExit: false } },         // clean
+    { source: "VirusTotal", error: "VIRUSTOTAL_API_KEY is not configured" } // off, not counted
+  ],
+  network: { asn: "48666", holder: "EVIL-HOSTING", prefix: "45.66.77.0/24" },
+  geo: { country: "RU", lat: 61.5, lon: 105.3 },
+  sanctions: { sanctioned: true, flagged: [{ name: "EVIL CORP" }] }
+};
+
+test("correlationSummary counts only flagged/clean sources and passes through joins", () => {
+  const s = correlationSummary(correlatePayload);
+  assert.equal(s.flaggedCount, 2);
+  assert.deepEqual(s.flaggedSources, ["AbuseIPDB", "Feodo Tracker"]);
+  assert.equal(s.checkedCount, 3); // the unconfigured VirusTotal is not "checked"
+  assert.equal(s.network.holder, "EVIL-HOSTING");
+  assert.equal(s.sanctions.sanctioned, true);
+});
+
+test("correlationBanner renders threat, network, geo, sanctions, and a locate button", () => {
+  const html = correlationBanner(correlatePayload);
+  assert.match(html, /correlate-banner danger/);
+  assert.match(html, /flagged by 2 of 3 sources/);
+  assert.match(html, /AS48666 · EVIL-HOSTING/);
+  assert.match(html, /1 name match — EVIL CORP/);
+  assert.match(html, /correlate-locate/);
+  assert.match(html, /data-lat="61.5"/);
+});
+
+test("correlationBanner is 'ok' and omits the locate button when nothing flags and geo is unresolved", () => {
+  const html = correlationBanner({
+    indicator: "8.8.8.8",
+    results: [{ source: "AbuseIPDB", data: { abuseConfidenceScore: 0 } }],
+    network: {},
+    geo: { country: null, lat: null, lon: null },
+    sanctions: { sanctioned: false, flagged: [] }
+  });
+  assert.match(html, /correlate-banner ok/);
+  assert.match(html, /flagged by 0 of 1 source\b/);
+  assert.match(html, /no OpenSanctions name match/);
+  assert.doesNotMatch(html, /correlate-locate/);
 });

@@ -2,6 +2,32 @@ import { cachedResilient } from "../lib/cache.js";
 import { fetchJsonRetry } from "../lib/http.js";
 import { entity, finiteCoordinate } from "../lib/normalize.js";
 
+// EONET publishes no intensity, so severity is a coarse per-category importance
+// weight (1-5) derived from the event's OWN category rather than a single per-layer
+// constant. That is what lets a severity-filtered or minSeverity alert rule
+// actually discriminate on the weather layer (a volcano ranks above drifting snow),
+// where before every event shared one value and no threshold could tell them apart.
+// It is a ranking, not a measurement; an unknown/absent category falls back to 3.
+const CATEGORY_SEVERITY = {
+  volcanoes: 5,
+  earthquakes: 5,
+  severeStorms: 4,
+  floods: 4,
+  wildfires: 4,
+  landslides: 4,
+  drought: 3,
+  tempExtremes: 3,
+  manmade: 3,
+  snow: 2,
+  seaLakeIce: 2,
+  dustHaze: 2,
+  waterColor: 2
+};
+
+export function severityForCategory(categoryId) {
+  return CATEGORY_SEVERITY[categoryId] || 3;
+}
+
 function bboxParam(bounds) {
   if (!bounds.lomin || !bounds.lamin || !bounds.lomax || !bounds.lamax) return "";
   const westRaw = Number(bounds.lomin);
@@ -32,11 +58,7 @@ export async function eonetLayer(layer, categories, bounds = {}) {
       name: event.title,
       lat: geo.coordinates?.[1],
       lon: geo.coordinates?.[0],
-      // Constant per layer: EONET publishes no intensity, so this is a coarse
-      // category weight, not a measurement. A rule with minSeverity above
-      // these values can never match. Deriving real severity from the event
-      // category is a worthwhile follow-up.
-      severity: layer === "weather" ? 3 : 4,
+      severity: severityForCategory(event.categories?.[0]?.id),
       time: geo.date,
       source: event.sources?.[0]?.id || "NASA EONET",
       url: event.link,

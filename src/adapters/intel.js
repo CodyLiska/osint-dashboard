@@ -1,6 +1,7 @@
 import { cachedResilient } from "../lib/cache.js";
 import { fetchJsonRetry, fetchTextRetry, withRetry } from "../lib/http.js";
 import { sanctionsSearch } from "./recon.js";
+import { COUNTRY_CENTROIDS } from "../lib/centroids.js";
 
 // --- IPv4 helpers (Tor / Spamhaus membership checks) ---
 function ipToInt(ip) {
@@ -290,16 +291,23 @@ export async function crtShLookup(domain) {
   };
 }
 
-// URLScan.io public search — keyless. Recent scans of a domain (resolved IPs,
-// hosting countries, page titles), a "what has this domain been serving" view.
+// URLScan.io search. Works keyless (the default, low anonymous quota); supplying
+// an optional URLSCAN_API_KEY sends the `API-Key` header, which raises the rate
+// limit and enlarges result windows — the authenticated higher-quota tier. This
+// is the phase-7 pattern: a currently-anonymous source made key-aware without
+// changing behavior when no key is set (graceful-off), never made key-required.
 export async function urlScanLookup(domain) {
-  const result = await cachedResilient(`urlscan:${domain}`, 60 * 60_000, () =>
-    fetchJsonRetry(`https://urlscan.io/api/v1/search/?q=domain:${encodeURIComponent(domain)}&size=20`));
+  const key = process.env.URLSCAN_API_KEY;
+  const size = key ? 100 : 20; // authenticated requests may pull a larger window
+  const headers = key ? { "API-Key": key } : {};
+  const result = await cachedResilient(`urlscan:${key ? "auth:" : ""}${domain}`, 60 * 60_000, () =>
+    fetchJsonRetry(`https://urlscan.io/api/v1/search/?q=domain:${encodeURIComponent(domain)}&size=${size}`, { headers }));
   const results = result.value?.results || [];
   return {
     source: "URLScan.io",
     domain,
     cached: result.cached,
+    authenticated: Boolean(key),
     data: {
       total: result.value?.total ?? results.length,
       recent: results.slice(0, 10).map((r) => ({
@@ -426,6 +434,50 @@ export async function ipIntel(ip) {
         source: result.reason?.source || "unavailable",
         error: result.reason?.error?.message || result.reason?.message || "Lookup failed"
       })
+  };
+}
+
+// Cross-source correlation for one IP: joins the reputation fan-out (ipIntel) with
+// RDAP + sanctions (whoisLookup) and resolves the announcing network and a country
+// geolocation, so one lookup answers "is this bad, whose network is it on, where is
+// it, and does it touch a sanctioned party" instead of the analyst reading ten
+// cards and a separate WHOIS. The per-source results are passed through unchanged
+// so the existing cards still render beneath the correlation summary; the threat
+// verdict count is derived on the frontend (one place owns per-source classification).
+export async function correlate(ip) {
+  const [intel, whois] = await Promise.all([
+    ipIntel(ip),
+    whoisLookup(ip).catch((error) => ({ error: error.message }))
+  ]);
+
+  const bySource = new Map((intel.results || []).map((r) => [r.source, r.data || {}]));
+  const vt = bySource.get("VirusTotal") || {};
+  const abuse = bySource.get("AbuseIPDB") || {};
+  const ripe = bySource.get("RIPEstat") || {};
+
+  // Country is ISO alpha-2 from every carrier (RDAP, VT, AbuseIPDB), so it maps
+  // straight onto the bundled centroid table — no geocoding round-trip.
+  const country = whois?.summary?.country || vt.country || abuse.countryCode || null;
+  const centroid = country ? COUNTRY_CENTROIDS[String(country).toUpperCase()] || null : null;
+
+  const asn = Array.isArray(ripe.asns) ? ripe.asns[0] ?? null : ripe.asns ?? null;
+  const network = {
+    asn: asn ?? null,
+    holder: ripe.holder || vt.as_owner || abuse.isp || null,
+    prefix: ripe.prefix || null
+  };
+
+  return {
+    indicator: ip,
+    type: "ip",
+    results: intel.results || [],
+    sanctions: whois?.sanctions || null,
+    network,
+    geo: {
+      country,
+      lat: centroid ? centroid[1] : null,
+      lon: centroid ? centroid[0] : null
+    }
   };
 }
 

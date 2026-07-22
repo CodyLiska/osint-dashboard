@@ -23,7 +23,9 @@ Keep it LAN-only: the `/api/intel/*` and `/api/crypto/*` routes proxy external s
 
 ## Status / Next
 
-**PRODUCTION** — deployed on the homelab `ubuntu-g2` (192.168.12.230), LAN-only at http://192.168.12.230:8092 (`docker-compose.prod.yml`, non-root `node`), located at `06_Production_Apps/Homelab_Sever/osint-dashboard`. **286 tests** (`npm test`, zero deps).
+**PRODUCTION** — deployed on the homelab `ubuntu-g2` (192.168.12.230), LAN-only at http://192.168.12.230:8092 (`docker-compose.prod.yml`, non-root `node`), located at `06_Production_Apps/Homelab_Sever/osint-dashboard`. **305 tests** (`npm test`, zero deps).
+
+**Redeployed 2026-07-21** (commit `eede3af`) — the local work that had been sitting ahead of the deployed image is now live on the homelab: **historical persistence + the alert-rules engine (both running on the homelab for the first time)**, batch-5 sources, the `ransomware` + `gpsjam` layers, the UI layout/grouping pass, and the verified `.env` API keys (10/13 working — see `docs/API-KEY-STATUS.md`). The server had diverged because origin's history was rewritten by the earlier address scrub (`git filter-repo` + force-push); resolved on the server with `git reset --hard origin/main`, hence the new commit hashes. Alerting stays off unless `config/alert-rules.json` is hand-placed on the server (gitignored, not delivered by `git pull`).
 
 Recent (2026-07-20, committed `00821e9`→`6620471`) — critical-infra + humanitarian sources, IP-intel cards:
 - **4 new layers (batch 5).** `power-plants` (static, WRI v1.3.0, 3,245 plants ≥500MW plus all 195 nuclear, 814KB, `scripts/build-power-plants.mjs`); `infrastructure` (live, OSM/Overpass substations + comms towers, viewport-scoped); `advisories` (live keyless State Dept RSS, 208 countries); `reliefweb` (optional-keyed `RELIEFWEB_APPNAME`, persist:true).
